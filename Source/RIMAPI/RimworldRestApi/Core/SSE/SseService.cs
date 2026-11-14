@@ -259,6 +259,11 @@ namespace RIMAPI.Core
             lock (_eventsLock) return new List<string>(_registeredEventTypes);
         }
 
+        public int GetClientCount()
+        {
+            lock (_clientsLock) return _connectedClients.Count;
+        }
+
         private class SseEvent
         {
             public string Type { get; set; }

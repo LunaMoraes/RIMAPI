@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
@@ -18,6 +19,8 @@ namespace RIMAPI.Core
             RimApiContext,
             Dictionary<string, string>
         > _routeParameters;
+
+        public event Action<string, string, string, int, long> OnRouteCompleted;
 
         public Router()
         {
@@ -128,6 +131,7 @@ namespace RIMAPI.Core
         private async Task ExecuteRouteHandler(RouteMatch routeMatch, RimApiContext context)
         {
             var route = routeMatch.Route;
+            var sw = Stopwatch.StartNew();
             LogApi.Info($"Route matched: {route.Method} {route.PathPattern}");
 
             try
@@ -181,6 +185,19 @@ namespace RIMAPI.Core
             }
             finally
             {
+                sw.Stop();
+                if (context.Response.ContentType != "text/event-stream")
+                {
+                    var reqPath = NormalizePath(context.Request.Url?.AbsolutePath ?? route.PathPattern);
+                    OnRouteCompleted?.Invoke(
+                        route.Method,
+                        reqPath,
+                        context.Request.Url?.Query,
+                        context.Response.StatusCode,
+                        sw.ElapsedMilliseconds
+                    );
+                }
+
                 // Clean up route parameters
                 lock (_routeParameters)
                 {

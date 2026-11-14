@@ -70,6 +70,11 @@ namespace RIMAPI.Core
 #endif
 
                 _router = new Router();
+                var dashboardService = _serviceProvider.GetService<IDashboardService>();
+                if (dashboardService != null)
+                {
+                    _router.OnRouteCompleted += dashboardService.RecordHttpAction;
+                }
                 _requestQueue = new Queue<RimApiContext>();
 
                 LogApi.Info("Initializing route registry...");
