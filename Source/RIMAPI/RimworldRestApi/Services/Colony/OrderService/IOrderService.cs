@@ -5,6 +5,6 @@ namespace RIMAPI.Services
 {
     public interface IOrderService
     {
-        ApiResult DesignateArea(DesignateRequestDto request);
+        ApiResult<DesignateResultDto> DesignateArea(DesignateRequestDto request);
     }
 }
