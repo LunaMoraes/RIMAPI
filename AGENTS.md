@@ -44,3 +44,17 @@ dotnet build Source/RIMAPI/RimApi.csproj -c Release-1.7
 - **DI:** Custom `ServiceCollection` / `ServiceProvider` registered in `ApiServer.CreateDefaultServiceProvider()`.
 - **Real-time Events:** `SseService` + Harmony patches in `Source/RIMAPI/RimworldRestApi/Hooks/`.
 - **Extensions:** Implement `IRimApiExtension` for modular route/service registration.
+
+## Custom Endpoints & Tooling
+
+- **AI Agent Routes (`/api/v1/ai/...` + expanded `OrderController`):**
+  - `GET /api/v1/ai/snapshot` — Compact colony state snapshot (`AiController`)
+  - `POST /api/v1/order/designate/area` — Expanded designations (`mine`, `deconstruct`, `harvest`, `chop`, `cut`, `haul`, `hunt`, `tame`, `slaughter`, `smooth`, `claim`, `uninstall`, `forbid`, `unforbid`, `cancel`, `remove-all`) with count feedback
+  - `POST /api/v1/ai/pawn/draft`, `POST /api/v1/ai/pawn/command`, `POST /api/v1/ai/pawn/policy`, `GET /api/v1/ai/areas`, `POST /api/v1/ai/areas/create`, `POST /api/v1/ai/areas/cells`, `POST /api/v1/ai/prisoner/interaction` (`AiPawnController`)
+  - `GET /api/v1/ai/letters`, `POST /api/v1/ai/letters/dismiss`, `GET /api/v1/ai/zones/stockpile`, `POST /api/v1/ai/zones/stockpile/filter`, `GET /api/v1/ai/trade/traders`, `POST /api/v1/ai/trade/execute` (`AiColonyExtrasController`)
+- **Dashboard Routes (`/api/v1/dashboard/...` + `ai_action` SSE):**
+  - `GET /api/v1/dashboard/overview`, `GET /api/v1/dashboard/actions`, `POST /api/v1/dashboard/actions/clear` (`DashboardController`)
+  - Local web UI: `dashboard/index.html` (see `dashboard/README.md`)
+- **Human-Only Experiment Routes (`/api/v1/experiment/...`):**
+  - `GET /api/v1/experiment/status`, `POST /api/v1/experiment/incident`, `POST /api/v1/experiment/speed`, `POST /api/v1/experiment/annotation` (`ExperimentController`)
+- **Smoke Test:** `python tests/ai_dashboard_smoke_test.py` (add `--write-tests` for mutating checks) against a running RimWorld 1.7 colony.

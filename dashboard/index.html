@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RIMAPI — AI Colony Monitor & Experiment Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #171a23;
+      --border: #262b38;
+      --text: #e6e9f0;
+      --muted: #8b93a7;
+      --accent: #5b8cff;
+      --ok: #3ddc97;
+      --warn: #ffb454;
+      --danger: #ff5c77;
+      --exp: #b97cff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 18px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); display: inline-block; }
+    .dot.live { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+    .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    input, select, button {
+      background: #10131a;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+    button { cursor: pointer; background: #1e2433; }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.exp { background: #2c1e40; border-color: var(--exp); color: #ebd9ff; }
+    main {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 16px;
+      max-width: 1500px;
+      margin: 0 auto;
+    }
+    @media (max-width: 1024px) { main { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .card h2 {
+      margin: 0;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap: 8px;
+    }
+    .stat {
+      background: #11141c;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+    .stat .label { color: var(--muted); font-size: 11px; }
+    .stat .val { font-size: 15px; font-weight: 600; margin-top: 2px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 500; }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .b-ai { background: rgba(91, 140, 255, 0.2); color: var(--accent); }
+    .b-exp { background: rgba(185, 124, 255, 0.2); color: var(--exp); }
+    .b-core { background: rgba(139, 147, 167, 0.2); color: var(--muted); }
+    .b-ok { background: rgba(61, 220, 151, 0.18); color: var(--ok); }
+    .b-warn { background: rgba(255, 180, 84, 0.18); color: var(--warn); }
+    .b-danger { background: rgba(255, 92, 119, 0.2); color: var(--danger); }
+    .feed {
+      max-height: 420px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .feed-item {
+      background: #11141c;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+    }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span id="sse-dot" class="dot"></span>
+      <span>RIMAPI AI Colony Monitor</span>
+      <span id="conn-label" class="muted">Connecting...</span>
+    </div>
+    <div class="controls">
+      <label class="muted">API:</label>
+      <input id="base-url" type="text" value="http://localhost:8765" style="width: 190px;" />
+      <button onclick="reconnect()">Reconnect</button>
+      <button onclick="refreshOverview()">Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Left Column: Colony State -->
+    <div style="display:flex; flex-direction:column; gap:16px;">
+      <section class="card">
+        <h2>
+          <span>Colony Overview</span>
+          <span id="time-info" class="muted">—</span>
+        </h2>
+        <div class="stats-grid" id="resources-grid"></div>
+      </section>
+
+      <section class="card">
+        <h2>
+          <span>Colonists (<span id="colonist-count">0</span>)</span>
+          <span id="research-info" class="muted">—</span>
+        </h2>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>HP</th>
+                <th>Mood</th>
+                <th>Food</th>
+                <th>Rest</th>
+                <th>Job</th>
+                <th>Area / Stance</th>
+                <th>Flags</th>
+              </tr>
+            </thead>
+            <tbody id="colonists-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>
+          <span>Threats, Alerts &amp; Letters</span>
+          <span id="threat-badge"></span>
+        </h2>
+        <div id="threats-box" class="muted">No active threats.</div>
+        <div id="alerts-box" class="row"></div>
+        <div id="letters-box" class="row"></div>
+      </section>
+    </div>
+
+    <!-- Right Column: Human Experiment Controls & Live AI Action Feed -->
+    <div style="display:flex; flex-direction:column; gap:16px;">
+      <section class="card">
+        <h2>
+          <span>Human Experiment Controls</span>
+          <span class="badge b-exp">/api/v1/experiment/*</span>
+        </h2>
+        <div class="row">
+          <span class="muted">Speed:</span>
+          <button onclick="setSpeed('Paused')">Pause</button>
+          <button onclick="setSpeed('Normal')">1x</button>
+          <button onclick="setSpeed('Fast')">2x</button>
+          <button onclick="setSpeed('Superfast')">3x</button>
+        </div>
+        <div class="row">
+          <input id="note-input" type="text" placeholder="Experiment annotation note..." style="flex:1;" />
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;">
+            <input id="note-banner" type="checkbox" checked /> Banner
+          </label>
+          <button class="exp" onclick="sendAnnotation()">Log Marker</button>
+        </div>
+        <div class="row">
+          <select id="incident-select">
+            <option value="RaidEnemy">RaidEnemy</option>
+            <option value="ManhunterPack">ManhunterPack</option>
+            <option value="SolarFlare">SolarFlare</option>
+            <option value="TraderCaravanArrival">TraderCaravanArrival</option>
+            <option value="ResourcePodCrash">ResourcePodCrash</option>
+          </select>
+          <input id="incident-points" type="number" placeholder="Points (auto)" style="width:110px;" />
+          <button class="exp" onclick="triggerIncident()">Trigger Incident</button>
+        </div>
+        <div id="exp-feedback" class="muted"></div>
+      </section>
+
+      <section class="card">
+        <h2>
+          <span>Live AI Action Feed</span>
+          <button onclick="clearActions()">Clear</button>
+        </h2>
+        <div class="feed" id="action-feed"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    let eventSource = null;
+    let pollTimer = null;
+
+    function baseUrl() {
+      return document.getElementById("base-url").value.replace(/\/+$/, "");
+    }
+
+    async function api(method, path, body) {
+      const opts = { method, headers: { "Accept": "application/json" } };
+      if (method !== "GET" && method !== "HEAD") {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(body ?? {});
+      }
+      const res = await fetch(baseUrl() + path, opts);
+      return await res.json();
+    }
+
+    function renderSnapshot(snap) {
+      if (!snap) return;
+      const t = snap.time || {};
+      const w = snap.weather || {};
+      const p = snap.power || {};
+      document.getElementById("time-info").textContent =
+        `Year ${t.year ?? "?"} · ${t.quadrum ?? ""} Day ${t.day_of_quadrum ?? "?"} · ${t.hour ?? "?"}h · ${t.game_speed ?? ""} · Tick ${t.tick ?? 0}`;
+
+      const r = snap.resources || {};
+      const stats = [
+        ["Meals", r.meals ?? 0],
+        ["Nutrition", r.total_nutrition ?? 0],
+        ["Wood", r.wood ?? 0],
+        ["Steel", r.steel ?? 0],
+        ["Components", r.components ?? 0],
+        ["Medicine", r.medicine ?? 0],
+        ["Silver", r.silver ?? 0],
+        ["Power Net", `${p.net_w ?? 0}W`],
+        ["Temp", `${w.temperature_c ?? 0}°C (${w.weather ?? ""})`]
+      ];
+      document.getElementById("resources-grid").innerHTML = stats
+        .map(([k, v]) => `<div class="stat"><div class="label">${k}</div><div class="val">${v}</div></div>`)
+        .join("");
+
+      const res = snap.research || {};
+      document.getElementById("research-info").textContent =
+        res.current_project ? `Research: ${res.current_project} (${res.progress_pct}%)` : "No active research";
+
+      const cols = snap.colonists || [];
+      document.getElementById("colonist-count").textContent = cols.length;
+      document.getElementById("colonists-body").innerHTML = cols.map(c => {
+        const flags = [];
+        if (c.is_drafted) flags.push(`<span class="badge b-ai">Drafted</span>`);
+        if (c.is_downed) flags.push(`<span class="badge b-danger">Downed</span>`);
+        if (c.in_mental_break) flags.push(`<span class="badge b-warn">Mental</span>`);
+        if ((c.bleeding_rate || 0) > 0) flags.push(`<span class="badge b-danger">Bleed ${c.bleeding_rate}</span>`);
+        return `<tr>
+          <td><strong>${c.name}</strong></td>
+          <td>${c.health_pct}%</td>
+          <td>${c.mood_pct}%</td>
+          <td>${c.food_pct}%</td>
+          <td>${c.rest_pct}%</td>
+          <td>${c.current_job}</td>
+          <td class="muted">${c.allowed_area} / ${c.hostility_response}</td>
+          <td>${flags.join(" ") || '<span class="muted">—</span>'}</td>
+        </tr>`;
+      }).join("");
+
+      const threats = snap.threats || { hostile_count: 0, hostiles: [] };
+      document.getElementById("threat-badge").innerHTML = threats.hostile_count > 0
+        ? `<span class="badge b-danger">${threats.hostile_count} Hostile</span>`
+        : `<span class="badge b-ok">Clear</span>`;
+      document.getElementById("threats-box").innerHTML = threats.hostile_count > 0
+        ? threats.hostiles.map(h => `<div>• <strong>${h.name}</strong> (${h.faction}) @ (${h.position?.x}, ${h.position?.z}) ${h.weapon || ""}</div>`).join("")
+        : '<span class="muted">No active hostiles on map.</span>';
+
+      document.getElementById("alerts-box").innerHTML = (snap.alerts || [])
+        .map(a => `<span class="badge b-warn">${a.label}</span>`).join("");
+
+      document.getElementById("letters-box").innerHTML = (snap.letters || [])
+        .map(l => `<span class="badge b-core">✉ ${l.label}</span>`).join("");
+    }
+
+    function actionHtml(a) {
+      const catClass = a.category === "ai" ? "b-ai" : (a.category === "experiment" || a.category === "annotation") ? "b-exp" : "b-core";
+      const statusClass = a.status_code >= 400 ? "b-danger" : "b-ok";
+      const detail = a.note ? ` — "${a.note}"` : (a.query || "");
+      return `<div class="feed-item">
+        <div>
+          <span class="badge ${catClass}">${a.category}</span>
+          <strong>${a.method}</strong> ${a.path}<span class="muted">${detail}</span>
+        </div>
+        <div style="white-space:nowrap;">
+          <span class="badge ${statusClass}">${a.status_code}</span>
+          <span class="muted">${a.duration_ms}ms · t${a.game_tick}</span>
+        </div>
+      </div>`;
+    }
+
+    function renderActions(list) {
+      document.getElementById("action-feed").innerHTML = (list || []).map(actionHtml).join("");
+    }
+
+    function prependAction(a) {
+      const feed = document.getElementById("action-feed");
+      feed.insertAdjacentHTML("afterbegin", actionHtml(a));
+      while (feed.children.length > 100) feed.removeChild(feed.lastChild);
+    }
+
+    async function refreshOverview() {
+      try {
+        const res = await api("GET", "/api/v1/dashboard/overview?limit=30");
+        if (res.success && res.data) {
+          renderSnapshot(res.data.snapshot);
+          renderActions(res.data.recent_actions);
+        }
+      } catch (err) {
+        document.getElementById("conn-label").textContent = "Offline (" + err.message + ")";
+      }
+    }
+
+    function connectSse() {
+      if (eventSource) eventSource.close();
+      const dot = document.getElementById("sse-dot");
+      const label = document.getElementById("conn-label");
+      dot.classList.remove("live");
+      label.textContent = "Connecting SSE...";
+
+      eventSource = new EventSource(baseUrl() + "/api/v1/events");
+      eventSource.onopen = () => {
+        dot.classList.add("live");
+        label.textContent = "SSE Live";
+      };
+      eventSource.addEventListener("ai_action", (e) => {
+        try { prependAction(JSON.parse(e.data)); } catch {}
+      });
+      eventSource.onerror = () => {
+        dot.classList.remove("live");
+        label.textContent = "SSE Reconnecting...";
+      };
+    }
+
+    async function setSpeed(speed) {
+      const res = await api("POST", "/api/v1/experiment/speed", { speed });
+      document.getElementById("exp-feedback").textContent = res.success
+        ? `Speed set to ${res.data.game_speed}`
+        : (res.errors || []).join(", ");
+      refreshOverview();
+    }
+
+    async function sendAnnotation() {
+      const note = document.getElementById("note-input").value.trim();
+      if (!note) return;
+      const show = document.getElementById("note-banner").checked;
+      const res = await api("POST", "/api/v1/experiment/annotation", { note, show_in_game_banner: show });
+      if (res.success) {
+        document.getElementById("note-input").value = "";
+        document.getElementById("exp-feedback").textContent = "Marker logged.";
+      }
+    }
+
+    async function triggerIncident() {
+      const def = document.getElementById("incident-select").value;
+      const ptsRaw = document.getElementById("incident-points").value;
+      const body = { incident_def: def };
+      if (ptsRaw) body.points = parseFloat(ptsRaw);
+      const res = await api("POST", "/api/v1/experiment/incident", body);
+      document.getElementById("exp-feedback").textContent = res.success
+        ? `Incident ${res.data.incident_def} fired=${res.data.fired} (points=${res.data.points_used})`
+        : (res.errors || []).join(", ");
+    }
+
+    async function clearActions() {
+      await api("POST", "/api/v1/dashboard/actions/clear", {});
+      document.getElementById("action-feed").innerHTML = "";
+    }
+
+    function reconnect() {
+      connectSse();
+      refreshOverview();
+    }
+
+    reconnect();
+    pollTimer = setInterval(refreshOverview, 2500);
+  </script>
+</body>
+</html>
