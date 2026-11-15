@@ -1,0 +1,212 @@
+title: '### :material-package-variant: AI Colony Extras Controller'
+desc: Letters (including Biotech growth moments), storage settings (`IStoreSettingsParent`), and safe trading endpoints.
+/api/v1/ai/letters:
+  desc: List active letters on the letter stack, including choice labels and Biotech `ChoiceLetter_GrowthMoment` passion/trait choices.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/ai/letters'
+    ```
+  request: |-
+    **Request:**
+    No request body.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": [{"id": 12, "label": "Raid", "type": "ThreatBig", "can_dismiss": true, "choices": []}],
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/ai/letters/dismiss:
+  desc: Dismiss a letter, pick a `choice_index`, or resolve a `ChoiceLetter_GrowthMoment` with `selected_passions` and `selected_trait`.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/letters/dismiss' \
+    --header 'Content-Type: application/json' \
+    --data '{"letter_id":12}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "letter_id": 12,
+        "choice_index": null,
+        "selected_passions": null,
+        "selected_trait": null
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/zones/stockpile:
+  desc: List all `Zone_Stockpile` zones and colonist `IStoreSettingsParent` storage buildings (vanilla shelves and modded storage buildings).
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/ai/zones/stockpile?map_id=0'
+    ```
+  request: |-
+    **Request:**
+    No request body. Optional query param: `map_id`.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": [
+            {
+                "id": 1,
+                "storage_type": "zone",
+                "def_name": null,
+                "label": "Stockpile zone 1",
+                "priority": "Normal",
+                "cell_count": 25,
+                "allowed_defs_count": 150,
+                "position": {"x": 15, "y": 0, "z": 15}
+            }
+        ],
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/ai/zones/stockpile/filter:
+  desc: Update priority and category/ThingDef allow filters on a stockpile zone or storage building (`zone_id`, `building_id`, or `zone_label`).
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/zones/stockpile/filter' \
+    --header 'Content-Type: application/json' \
+    --data '{"map_id":0,"zone_label":"Stockpile zone 1","priority":"Preferred","allow_defs":["Steel"]}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "map_id": 0,
+        "zone_id": null,
+        "building_id": null,
+        "zone_label": "Stockpile zone 1",
+        "priority": "Preferred",
+        "clear_all": false,
+        "allow_all": false,
+        "allow_categories": [],
+        "disallow_categories": [],
+        "allow_defs": ["Steel"],
+        "disallow_defs": []
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"id": 1, "storage_type": "zone", "label": "Stockpile zone 1", "priority": "Preferred"},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/trade/traders:
+  desc: List orbital trade ships (where `CanTradeNow` is true) and visiting caravan traders on the map.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/ai/trade/traders?map_id=0'
+    ```
+  request: |-
+    **Request:**
+    No request body. Optional query param: `map_id`.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": [{"trader_id": 999, "name": "Bulk Goods Trader", "type": "orbital", "silver": 1500, "goods": []}],
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/ai/trade/deal:
+  desc: |-
+    Quote exact negotiated `TradeDeal` lines (index, prices, min/max counts, colony/trader silver) without mutating game state.
+    Returns 409 Conflict if a trade session is already open in the UI.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/ai/trade/deal?trader_id=999'
+    ```
+  request: |-
+    **Request:**
+    No request body. Query params: `trader_id` (required), `map_id` (optional), `negotiator_pawn_id` (optional).
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {
+            "map_id": 0,
+            "trader_id": 999,
+            "trader_name": "Bulk Goods Trader",
+            "colony_silver": 500,
+            "trader_silver": 1500,
+            "lines": []
+        },
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/ai/trade/execute:
+  desc: Execute or dry-run a trade deal using quote line `index` or `def_name`, validating min/max bounds and reporting `net_silver_change`.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/trade/execute' \
+    --header 'Content-Type: application/json' \
+    --data '{"map_id":0,"trader_id":999,"dry_run":true,"items":[{"def_name":"Steel","count_delta":10}]}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "map_id": 0,
+        "trader_id": 999,
+        "negotiator_pawn_id": null,
+        "dry_run": false,
+        "items": [{"index": 0, "def_name": "Steel", "count_delta": 10}]
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"trader_id": 999, "trader_name": "Bulk Goods Trader", "dry_run": false, "executed": true, "items_processed": 1, "net_silver_change": -25},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST

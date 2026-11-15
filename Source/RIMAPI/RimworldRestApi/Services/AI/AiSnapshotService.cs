@@ -20,36 +20,56 @@ namespace RIMAPI.Services
             _uiService = uiService;
         }
 
-        public ApiResult<AiSnapshotDto> GetSnapshot(int? mapId)
+        public ApiResult<AiSnapshotDto> GetSnapshot(int? mapId, bool omniscient = false, string include = null, int? sinceTick = null)
         {
             try
             {
                 if (Current.ProgramState != ProgramState.Playing || Current.Game == null || Find.Maps == null)
                 {
-                    return ApiResult<AiSnapshotDto>.Fail("Game is not currently playing.");
+                    return ApiResult<AiSnapshotDto>.ServiceUnavailable("Game is not currently playing.");
                 }
 
-                Map map = mapId.HasValue ? MapHelper.GetMapByID(mapId.Value) : Find.CurrentMap;
+                Map map = MapHelper.ResolveMap(mapId);
                 if (map == null)
                 {
                     return ApiResult<AiSnapshotDto>.Fail($"Map not found: {mapId?.ToString() ?? "current"}");
                 }
 
+                var includeSet = ParseIncludeSet(include);
+                bool includeAll = includeSet.Contains("all");
+                int currentTick = Find.TickManager?.TicksGame ?? 0;
+
                 var snapshot = new AiSnapshotDto
                 {
                     MapId = map.uniqueID,
                     ProgramState = Current.ProgramState.ToString(),
+                    Omniscient = omniscient,
+                    SinceTick = sinceTick,
+                    TicksElapsed = sinceTick.HasValue ? Math.Max(0, currentTick - sinceTick.Value) : (int?)null,
                     Time = BuildTime(map),
                     Weather = BuildWeather(map),
                     Power = BuildPower(map),
-                    Resources = BuildResources(map),
+                    Resources = BuildResources(map, omniscient),
                     Colonists = BuildColonists(map),
-                    Threats = BuildThreats(map),
+                    Threats = BuildThreats(map, omniscient),
                     Alerts = BuildAlerts(),
                     Letters = BuildLetters(),
                     Research = BuildResearch(),
                     Zones = BuildZones(map)
                 };
+
+                if (includeAll || includeSet.Contains("game_conditions"))
+                    snapshot.GameConditions = BuildGameConditions(map);
+                if (includeAll || includeSet.Contains("designations"))
+                    snapshot.Designations = BuildDesignationsList(map, omniscient, maxEntries: 200);
+                if (includeAll || includeSet.Contains("prisoners"))
+                    snapshot.Prisoners = BuildPrisoners(map);
+                if (includeAll || includeSet.Contains("guests"))
+                    snapshot.Guests = BuildGuests(map, omniscient);
+                if (includeAll || includeSet.Contains("animals"))
+                    snapshot.Animals = BuildAnimals(map, omniscient);
+                if (includeAll || includeSet.Contains("mechs"))
+                    snapshot.Mechs = BuildMechs(map);
 
                 return ApiResult<AiSnapshotDto>.Ok(snapshot);
             }
@@ -58,6 +78,34 @@ namespace RIMAPI.Services
                 LogApi.Error($"Error building AI snapshot: {ex}");
                 return ApiResult<AiSnapshotDto>.Fail($"Failed to build AI snapshot: {ex.Message}");
             }
+        }
+
+        public ApiResult<List<AiDesignationSummaryDto>> GetDesignations(int? mapId, bool omniscient = false)
+        {
+            if (Current.ProgramState != ProgramState.Playing || Current.Game == null || Find.Maps == null)
+            {
+                return ApiResult<List<AiDesignationSummaryDto>>.ServiceUnavailable("Game is not currently playing.");
+            }
+
+            Map map = MapHelper.ResolveMap(mapId);
+            if (map == null)
+            {
+                return ApiResult<List<AiDesignationSummaryDto>>.Fail($"Map not found: {mapId?.ToString() ?? "current"}");
+            }
+
+            return ApiResult<List<AiDesignationSummaryDto>>.Ok(BuildDesignationsList(map, omniscient, maxEntries: null));
+        }
+
+        private static HashSet<string> ParseIncludeSet(string include)
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(include)) return set;
+            foreach (var part in include.Split(','))
+            {
+                string trimmed = part?.Trim();
+                if (!string.IsNullOrEmpty(trimmed)) set.Add(trimmed);
+            }
+            return set;
         }
 
         private static AiTimeDto BuildTime(Map map)
@@ -118,7 +166,7 @@ namespace RIMAPI.Services
             };
         }
 
-        private static AiResourceSummaryDto BuildResources(Map map)
+        private static AiResourceSummaryDto BuildResources(Map map, bool omniscient)
         {
             var counter = map.resourceCounter;
             if (counter == null) return new AiResourceSummaryDto();
@@ -126,6 +174,7 @@ namespace RIMAPI.Services
             int meals = 0;
             foreach (var thing in map.listerThings.ThingsInGroup(ThingRequestGroup.FoodSourceNotPlantOrTree))
             {
+                if ((!omniscient && thing.Position.Fogged(map)) || thing.IsForbidden(Faction.OfPlayer)) continue;
                 if (thing.def.IsIngestible && thing.def.ingestible?.preferability >= FoodPreferability.MealAwful)
                 {
                     meals += thing.stackCount;
@@ -135,18 +184,54 @@ namespace RIMAPI.Services
             int medicine = 0;
             foreach (var thing in map.listerThings.ThingsInGroup(ThingRequestGroup.Medicine))
             {
+                if ((!omniscient && thing.Position.Fogged(map)) || thing.IsForbidden(Faction.OfPlayer)) continue;
                 medicine += thing.stackCount;
+            }
+
+            int storedMeals = 0;
+            int storedMedicine = 0;
+            var topStored = new List<AiResourceCountDto>();
+            var counted = counter.AllCountedAmounts;
+            if (counted != null)
+            {
+                foreach (var kv in counted)
+                {
+                    if (kv.Value <= 0 || kv.Key == null) continue;
+                    if (kv.Key.IsIngestible && kv.Key.ingestible?.preferability >= FoodPreferability.MealAwful)
+                    {
+                        storedMeals += kv.Value;
+                    }
+                    if (kv.Key.IsMedicine)
+                    {
+                        storedMedicine += kv.Value;
+                    }
+                }
+
+                topStored = counted
+                    .Where(kv => kv.Key != null && kv.Value > 0)
+                    .OrderByDescending(kv => kv.Value)
+                    .Take(12)
+                    .Select(kv => new AiResourceCountDto
+                    {
+                        DefName = kv.Key.defName,
+                        Label = kv.Key.label,
+                        Count = kv.Value
+                    })
+                    .ToList();
             }
 
             return new AiResourceSummaryDto
             {
                 TotalNutrition = Mathf.RoundToInt(counter.TotalHumanEdibleNutrition),
                 Meals = meals,
+                StoredMeals = storedMeals,
                 Wood = counter.GetCount(ThingDefOf.WoodLog),
                 Steel = counter.GetCount(ThingDefOf.Steel),
                 Components = counter.GetCount(ThingDefOf.ComponentIndustrial),
                 Medicine = medicine,
-                Silver = counter.GetCount(ThingDefOf.Silver)
+                StoredMedicine = storedMedicine,
+                Silver = counter.GetCount(ThingDefOf.Silver),
+                TopStoredResources = topStored
             };
         }
 
@@ -166,10 +251,44 @@ namespace RIMAPI.Services
                         .ToList();
                 }
 
+                var traits = p.story?.traits?.allTraits?
+                    .Select(t => t.LabelCap.ToString())
+                    .ToList() ?? new List<string>();
+
+                var injuries = new List<AiInjurySummaryDto>();
+                if (p.health?.hediffSet?.hediffs != null)
+                {
+                    foreach (var h in p.health.hediffSet.hediffs)
+                    {
+                        if (!h.Visible) continue;
+                        if (!(h is Hediff_Injury) && !h.Bleeding && !h.TendableNow() && h.def.lethalSeverity <= 0f && !h.def.makesSickThought)
+                            continue;
+
+                        float? immunity = null;
+                        var immComp = h.TryGetComp<HediffComp_Immunizable>();
+                        if (immComp != null)
+                        {
+                            immunity = (float)Math.Round(immComp.Immunity, 2);
+                        }
+
+                        injuries.Add(new AiInjurySummaryDto
+                        {
+                            Label = h.LabelCap.ToString(),
+                            Part = h.Part?.Label,
+                            Severity = (float)Math.Round(h.Severity, 2),
+                            BleedRate = (float)Math.Round(h.BleedRate, 2),
+                            TendableNow = h.TendableNow(),
+                            Immunity = immunity
+                        });
+                        if (injuries.Count >= 10) break;
+                    }
+                }
+
                 result.Add(new AiColonistSummaryDto
                 {
                     Id = p.thingIDNumber,
                     Name = p.LabelShort,
+                    DevelopmentalStage = p.DevelopmentalStage.ToString(),
                     Position = new PositionDto { X = p.Position.x, Y = 0, Z = p.Position.z },
                     HealthPct = Mathf.RoundToInt((p.health?.summaryHealth?.SummaryHealthPercent ?? 1f) * 100f),
                     MoodPct = Mathf.RoundToInt((p.needs?.mood?.CurLevelPercentage ?? 1f) * 100f),
@@ -182,19 +301,26 @@ namespace RIMAPI.Services
                     CurrentJob = p.CurJobDef?.defName ?? "Idle",
                     AllowedArea = p.playerSettings?.AreaRestrictionInPawnCurrentMap?.Label ?? "Unrestricted",
                     HostilityResponse = p.playerSettings?.hostilityResponse.ToString() ?? "Flee",
-                    TopSkills = topSkills
+                    RoyalTitle = p.royalty?.MostSeniorTitle?.Label,
+                    IsMechanitor = p.mechanitor != null,
+                    TopSkills = topSkills,
+                    Traits = traits,
+                    Injuries = injuries
                 });
             }
             return result;
         }
 
-        private static AiThreatsSummaryDto BuildThreats(Map map)
+        private static AiThreatsSummaryDto BuildThreats(Map map, bool omniscient)
         {
-            var hostiles = new List<AiHostileDto>();
+            const int MaxHostiles = 25;
+            var allHostiles = new List<AiHostileDto>();
             foreach (var p in map.mapPawns.AllPawnsSpawned)
             {
                 if (p.Dead || !p.HostileTo(Faction.OfPlayer)) continue;
-                hostiles.Add(new AiHostileDto
+                if (!omniscient && p.Position.Fogged(map)) continue;
+
+                allHostiles.Add(new AiHostileDto
                 {
                     Id = p.thingIDNumber,
                     Name = p.LabelShort,
@@ -207,8 +333,9 @@ namespace RIMAPI.Services
 
             return new AiThreatsSummaryDto
             {
-                HostileCount = hostiles.Count,
-                Hostiles = hostiles
+                HostileCount = allHostiles.Count,
+                TruncatedHostiles = allHostiles.Count > MaxHostiles,
+                Hostiles = allHostiles.Take(MaxHostiles).ToList()
             };
         }
 
@@ -293,6 +420,156 @@ namespace RIMAPI.Services
                 TotalGrowingCells = growingCells,
                 TotalStockpileCells = stockpileCells
             };
+        }
+
+        private static List<AiGameConditionDto> BuildGameConditions(Map map)
+        {
+            var list = new List<AiGameConditionDto>();
+            if (map.gameConditionManager?.ActiveConditions == null) return list;
+            foreach (var cond in map.gameConditionManager.ActiveConditions)
+            {
+                list.Add(new AiGameConditionDto
+                {
+                    DefName = cond.def?.defName,
+                    Label = cond.LabelCap.ToString(),
+                    TicksLeft = cond.TicksLeft,
+                    Permanent = cond.Permanent
+                });
+            }
+            return list;
+        }
+
+        private static List<AiDesignationSummaryDto> BuildDesignationsList(Map map, bool omniscient, int? maxEntries)
+        {
+            var list = new List<AiDesignationSummaryDto>();
+            if (map.designationManager?.AllDesignations == null) return list;
+
+            foreach (var des in map.designationManager.AllDesignations)
+            {
+                IntVec3 pos = des.target.Cell;
+                if (!omniscient && pos.IsValid && pos.InBounds(map) && pos.Fogged(map)) continue;
+
+                list.Add(new AiDesignationSummaryDto
+                {
+                    DefName = des.def?.defName,
+                    TargetType = des.target.HasThing ? "thing" : "cell",
+                    TargetId = des.target.HasThing ? des.target.Thing?.thingIDNumber : (int?)null,
+                    TargetLabel = des.target.HasThing ? des.target.Thing?.LabelShort : null,
+                    Position = pos.IsValid ? new PositionDto { X = pos.x, Y = pos.y, Z = pos.z } : null
+                });
+
+                if (maxEntries.HasValue && list.Count >= maxEntries.Value) break;
+            }
+            return list;
+        }
+
+        private static List<AiPrisonerSummaryDto> BuildPrisoners(Map map)
+        {
+            var list = new List<AiPrisonerSummaryDto>();
+            foreach (var p in map.mapPawns.PrisonersOfColonySpawned)
+            {
+                list.Add(new AiPrisonerSummaryDto
+                {
+                    Id = p.thingIDNumber,
+                    Name = p.LabelShort,
+                    Position = new PositionDto { X = p.Position.x, Y = 0, Z = p.Position.z },
+                    HealthPct = Mathf.RoundToInt((p.health?.summaryHealth?.SummaryHealthPercent ?? 1f) * 100f),
+                    MoodPct = Mathf.RoundToInt((p.needs?.mood?.CurLevelPercentage ?? 1f) * 100f),
+                    Resistance = (float)Math.Round(p.guest?.resistance ?? 0f, 2),
+                    InteractionMode = p.guest?.ExclusiveInteractionMode?.defName,
+                    IsWildMan = p.IsWildMan(),
+                    IsDowned = p.Downed
+                });
+            }
+            return list;
+        }
+
+        private static List<AiGuestSummaryDto> BuildGuests(Map map, bool omniscient)
+        {
+            var list = new List<AiGuestSummaryDto>();
+            foreach (var p in map.mapPawns.AllPawnsSpawned)
+            {
+                if (!p.RaceProps.Humanlike || p.Dead || p.Faction == Faction.OfPlayer || p.HostileTo(Faction.OfPlayer) || p.IsPrisonerOfColony)
+                    continue;
+                if (!omniscient && p.Position.Fogged(map))
+                    continue;
+
+                list.Add(new AiGuestSummaryDto
+                {
+                    Id = p.thingIDNumber,
+                    Name = p.LabelShort,
+                    Faction = p.Faction?.Name,
+                    HostFaction = p.guest?.HostFaction?.Name,
+                    GuestStatus = p.guest?.GuestStatus.ToString(),
+                    TraderKind = p.TraderKind?.defName,
+                    Position = new PositionDto { X = p.Position.x, Y = 0, Z = p.Position.z },
+                    HealthPct = Mathf.RoundToInt((p.health?.summaryHealth?.SummaryHealthPercent ?? 1f) * 100f),
+                    IsDowned = p.Downed
+                });
+            }
+            return list;
+        }
+
+        private static List<AiAnimalSummaryDto> BuildAnimals(Map map, bool omniscient)
+        {
+            var list = new List<AiAnimalSummaryDto>();
+            foreach (var p in map.mapPawns.AllPawnsSpawned)
+            {
+                if (!p.RaceProps.Animal || p.Dead) continue;
+                bool isColony = p.Faction == Faction.OfPlayer;
+                if (!omniscient && !isColony && p.Position.Fogged(map)) continue;
+
+                list.Add(new AiAnimalSummaryDto
+                {
+                    Id = p.thingIDNumber,
+                    Name = p.LabelShort,
+                    DefName = p.def?.defName,
+                    Tamed = isColony,
+                    Position = new PositionDto { X = p.Position.x, Y = 0, Z = p.Position.z },
+                    HealthPct = Mathf.RoundToInt((p.health?.summaryHealth?.SummaryHealthPercent ?? 1f) * 100f),
+                    IsDowned = p.Downed,
+                    Manhunter = p.InAggroMentalState
+                });
+            }
+            return list;
+        }
+
+        private static List<AiMechSummaryDto> BuildMechs(Map map)
+        {
+            var mechGroupMap = new Dictionary<Pawn, (Pawn overseer, MechanitorControlGroup group)>();
+            foreach (var colonist in map.mapPawns.FreeColonistsSpawned)
+            {
+                if (colonist.mechanitor?.controlGroups == null) continue;
+                foreach (var cg in colonist.mechanitor.controlGroups)
+                {
+                    if (cg?.MechsForReading == null) continue;
+                    foreach (var m in cg.MechsForReading)
+                    {
+                        mechGroupMap[m] = (colonist, cg);
+                    }
+                }
+            }
+
+            var list = new List<AiMechSummaryDto>();
+            foreach (var p in map.mapPawns.SpawnedColonyMechs)
+            {
+                if (p.Dead) continue;
+                mechGroupMap.TryGetValue(p, out var info);
+
+                list.Add(new AiMechSummaryDto
+                {
+                    Id = p.thingIDNumber,
+                    Name = p.LabelShort,
+                    DefName = p.def?.defName,
+                    Position = new PositionDto { X = p.Position.x, Y = 0, Z = p.Position.z },
+                    HealthPct = Mathf.RoundToInt((p.health?.summaryHealth?.SummaryHealthPercent ?? 1f) * 100f),
+                    EnergyPct = p.needs?.energy != null ? Mathf.RoundToInt(p.needs.energy.CurLevelPercentage * 100f) : (int?)null,
+                    OverseerId = info.overseer?.thingIDNumber,
+                    ControlGroupIndex = info.group?.Index,
+                    WorkMode = info.group?.WorkMode?.defName
+                });
+            }
+            return list;
         }
     }
 }

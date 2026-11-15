@@ -34,7 +34,7 @@ namespace RIMAPI.Controllers
         }
 
         [Post("/api/v1/ai/pawn/policy")]
-        [EndpointMetadata("Update colonist gameplay policies: hostility_response, self_tend, medical_care, allowed_area, food_policy, drug_policy, apparel_policy.")]
+        [EndpointMetadata("Update colonist gameplay policies: hostility_response, self_tend, medical_care, allowed_area (or allowed_area_id), food_policy (or food_policy_id), drug_policy (or drug_policy_id), reading_policy (or reading_policy_id), apparel_policy (or apparel_policy_id).")]
         public async Task UpdatePolicy(RimApiContext context)
         {
             var body = await context.Request.ReadBodyAsync<AiPawnPolicyRequestDto>();
@@ -42,22 +42,28 @@ namespace RIMAPI.Controllers
             await context.SendJsonResponse(result);
         }
 
+        [Get("/api/v1/ai/policies")]
+        [EndpointMetadata("List all colony policy IDs and labels (food, drug, reading, apparel) and map areas.")]
+        public async Task GetPolicies(RimApiContext context)
+        {
+            if (!RequestParser.TryGetOptionalInt(context, "map_id", out int? mapId, out string error))
+            {
+                await context.SendJsonResponse(ApiResult.ValidationFail(error));
+                return;
+            }
+
+            var result = _aiPawnService.GetPolicies(mapId);
+            await context.SendJsonResponse(result);
+        }
+
         [Get("/api/v1/ai/areas")]
         [EndpointMetadata("List all map areas (Home, Allowed areas, etc.) with cell counts.")]
         public async Task GetAreas(RimApiContext context)
         {
-            int? mapId = null;
-            string mapIdRaw = RequestParser.GetStringParameter(context, "map_id", required: false);
-            if (!string.IsNullOrEmpty(mapIdRaw))
+            if (!RequestParser.TryGetOptionalInt(context, "map_id", out int? mapId, out string error))
             {
-                if (!int.TryParse(mapIdRaw, out int parsedMapId))
-                {
-                    await context.SendJsonResponse(
-                        ApiResult.ValidationFail("Invalid map_id query parameter: must be an integer")
-                    );
-                    return;
-                }
-                mapId = parsedMapId;
+                await context.SendJsonResponse(ApiResult.ValidationFail(error));
+                return;
             }
 
             var result = _aiPawnService.GetAreas(mapId);

@@ -19,18 +19,10 @@ namespace RIMAPI.Controllers
         [EndpointMetadata("[Human-only] Get experiment harness status (storyteller, difficulty, colony wealth, colonist & hostile counts).")]
         public async Task GetStatus(RimApiContext context)
         {
-            int? mapId = null;
-            string mapIdRaw = RequestParser.GetStringParameter(context, "map_id", required: false);
-            if (!string.IsNullOrEmpty(mapIdRaw))
+            if (!RequestParser.TryGetOptionalInt(context, "map_id", out int? mapId, out string mapErr))
             {
-                if (!int.TryParse(mapIdRaw, out int parsedMapId))
-                {
-                    await context.SendJsonResponse(
-                        ApiResult.ValidationFail("Invalid map_id query parameter: must be an integer")
-                    );
-                    return;
-                }
-                mapId = parsedMapId;
+                await context.SendJsonResponse(ApiResult.ValidationFail(mapErr));
+                return;
             }
 
             var result = _experimentService.GetStatus(mapId);

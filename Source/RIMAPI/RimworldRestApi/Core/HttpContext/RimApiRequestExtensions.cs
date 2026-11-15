@@ -36,6 +36,11 @@ public static class RimApiRequestExtensions
 
             return JsonConvert.DeserializeObject<T>(json, JsonSettings);
         }
+        catch (JsonException ex)
+        {
+            LogApi.Warning($"Malformed JSON body at {request.Url}: {ex.Message}");
+            throw new JsonSerializationException($"Invalid JSON body: {ex.Message}", ex);
+        }
         catch (Exception ex)
         {
             LogApi.Error($"Error reading request body at {request.Url}: {ex}");

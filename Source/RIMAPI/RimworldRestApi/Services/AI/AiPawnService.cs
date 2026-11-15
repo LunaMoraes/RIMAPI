@@ -113,6 +113,10 @@ namespace RIMAPI.Services
                         {
                             return ApiResult<AiPawnCommandResultDto>.Fail($"Target pawn not found or dead on map: {request.TargetPawnId.Value}");
                         }
+                        if (!request.Omniscient && targetPawn.Position.Fogged(pawn.Map))
+                        {
+                            return ApiResult<AiPawnCommandResultDto>.ValidationFail("Target pawn is in fog of war (pass omniscient: true to override)");
+                        }
                         target = targetPawn;
                     }
                     else if (request.TargetPosition != null)
@@ -121,6 +125,10 @@ namespace RIMAPI.Services
                         if (!cell.InBounds(pawn.Map))
                         {
                             return ApiResult<AiPawnCommandResultDto>.ValidationFail("target_position is out of map bounds");
+                        }
+                        if (!request.Omniscient && cell.Fogged(pawn.Map))
+                        {
+                            return ApiResult<AiPawnCommandResultDto>.ValidationFail("target_position is in fog of war (pass omniscient: true to override)");
                         }
                         target = cell;
                     }
@@ -207,7 +215,23 @@ namespace RIMAPI.Services
                 pawn.playerSettings.medCare = medCare;
             }
 
-            if (request.AllowedArea != null && pawn.Map != null)
+            if (request.AllowedAreaId.HasValue && pawn.Map != null)
+            {
+                if (request.AllowedAreaId.Value <= 0)
+                {
+                    pawn.playerSettings.AreaRestrictionInPawnCurrentMap = null;
+                }
+                else
+                {
+                    Area area = pawn.Map.areaManager.AllAreas.FirstOrDefault(a => a.ID == request.AllowedAreaId.Value);
+                    if (area == null)
+                    {
+                        return ApiResult<AiPawnPolicyResultDto>.Fail($"Allowed area not found for id: {request.AllowedAreaId.Value}");
+                    }
+                    pawn.playerSettings.AreaRestrictionInPawnCurrentMap = area;
+                }
+            }
+            else if (request.AllowedArea != null && pawn.Map != null)
             {
                 string areaName = request.AllowedArea.Trim();
                 if (string.IsNullOrEmpty(areaName) || areaName.Equals("Unrestricted", StringComparison.OrdinalIgnoreCase))
@@ -227,7 +251,16 @@ namespace RIMAPI.Services
                 }
             }
 
-            if (!string.IsNullOrWhiteSpace(request.FoodPolicy) && pawn.foodRestriction != null && Current.Game?.foodRestrictionDatabase != null)
+            if (request.FoodPolicyId.HasValue && pawn.foodRestriction != null && Current.Game?.foodRestrictionDatabase != null)
+            {
+                var food = Current.Game.foodRestrictionDatabase.AllFoodRestrictions.FirstOrDefault(f => f.id == request.FoodPolicyId.Value);
+                if (food == null)
+                {
+                    return ApiResult<AiPawnPolicyResultDto>.Fail($"Food policy not found for id: {request.FoodPolicyId.Value}");
+                }
+                pawn.foodRestriction.CurrentFoodPolicy = food;
+            }
+            else if (!string.IsNullOrWhiteSpace(request.FoodPolicy) && pawn.foodRestriction != null && Current.Game?.foodRestrictionDatabase != null)
             {
                 var food = Current.Game.foodRestrictionDatabase.AllFoodRestrictions.FirstOrDefault(
                     f => f.label.Equals(request.FoodPolicy.Trim(), StringComparison.OrdinalIgnoreCase)
@@ -239,7 +272,16 @@ namespace RIMAPI.Services
                 pawn.foodRestriction.CurrentFoodPolicy = food;
             }
 
-            if (!string.IsNullOrWhiteSpace(request.DrugPolicy) && pawn.drugs != null && Current.Game?.drugPolicyDatabase != null)
+            if (request.DrugPolicyId.HasValue && pawn.drugs != null && Current.Game?.drugPolicyDatabase != null)
+            {
+                var drug = Current.Game.drugPolicyDatabase.AllPolicies.FirstOrDefault(d => d.id == request.DrugPolicyId.Value);
+                if (drug == null)
+                {
+                    return ApiResult<AiPawnPolicyResultDto>.Fail($"Drug policy not found for id: {request.DrugPolicyId.Value}");
+                }
+                pawn.drugs.CurrentPolicy = drug;
+            }
+            else if (!string.IsNullOrWhiteSpace(request.DrugPolicy) && pawn.drugs != null && Current.Game?.drugPolicyDatabase != null)
             {
                 var drug = Current.Game.drugPolicyDatabase.AllPolicies.FirstOrDefault(
                     d => d.label.Equals(request.DrugPolicy.Trim(), StringComparison.OrdinalIgnoreCase)
@@ -251,7 +293,37 @@ namespace RIMAPI.Services
                 pawn.drugs.CurrentPolicy = drug;
             }
 
-            if (!string.IsNullOrWhiteSpace(request.ApparelPolicy) && pawn.outfits != null && Current.Game?.outfitDatabase != null)
+            if (request.ReadingPolicyId.HasValue && pawn.reading != null && Current.Game?.readingPolicyDatabase != null)
+            {
+                var reading = Current.Game.readingPolicyDatabase.AllReadingPolicies.FirstOrDefault(r => r.id == request.ReadingPolicyId.Value);
+                if (reading == null)
+                {
+                    return ApiResult<AiPawnPolicyResultDto>.Fail($"Reading policy not found for id: {request.ReadingPolicyId.Value}");
+                }
+                pawn.reading.CurrentPolicy = reading;
+            }
+            else if (!string.IsNullOrWhiteSpace(request.ReadingPolicy) && pawn.reading != null && Current.Game?.readingPolicyDatabase != null)
+            {
+                var reading = Current.Game.readingPolicyDatabase.AllReadingPolicies.FirstOrDefault(
+                    r => r.label.Equals(request.ReadingPolicy.Trim(), StringComparison.OrdinalIgnoreCase)
+                );
+                if (reading == null)
+                {
+                    return ApiResult<AiPawnPolicyResultDto>.Fail($"Reading policy not found: {request.ReadingPolicy}");
+                }
+                pawn.reading.CurrentPolicy = reading;
+            }
+
+            if (request.ApparelPolicyId.HasValue && pawn.outfits != null && Current.Game?.outfitDatabase != null)
+            {
+                var outfit = Current.Game.outfitDatabase.AllOutfits.FirstOrDefault(o => o.id == request.ApparelPolicyId.Value);
+                if (outfit == null)
+                {
+                    return ApiResult<AiPawnPolicyResultDto>.Fail($"Apparel policy not found for id: {request.ApparelPolicyId.Value}");
+                }
+                pawn.outfits.CurrentApparelPolicy = outfit;
+            }
+            else if (!string.IsNullOrWhiteSpace(request.ApparelPolicy) && pawn.outfits != null && Current.Game?.outfitDatabase != null)
             {
                 var outfit = Current.Game.outfitDatabase.AllOutfits.FirstOrDefault(
                     o => o.label.Equals(request.ApparelPolicy.Trim(), StringComparison.OrdinalIgnoreCase)
@@ -270,10 +342,43 @@ namespace RIMAPI.Services
                 HostilityResponse = pawn.playerSettings.hostilityResponse.ToString(),
                 SelfTend = pawn.playerSettings.selfTend,
                 MedicalCare = pawn.playerSettings.medCare.ToString(),
+                AllowedAreaId = pawn.playerSettings.AreaRestrictionInPawnCurrentMap?.ID,
                 AllowedArea = pawn.playerSettings.AreaRestrictionInPawnCurrentMap?.Label ?? "Unrestricted",
+                FoodPolicyId = pawn.foodRestriction?.CurrentFoodPolicy?.id,
                 FoodPolicy = pawn.foodRestriction?.CurrentFoodPolicy?.label,
+                DrugPolicyId = pawn.drugs?.CurrentPolicy?.id,
                 DrugPolicy = pawn.drugs?.CurrentPolicy?.label,
+                ReadingPolicyId = pawn.reading?.CurrentPolicy?.id,
+                ReadingPolicy = pawn.reading?.CurrentPolicy?.label,
+                ApparelPolicyId = pawn.outfits?.CurrentApparelPolicy?.id,
                 ApparelPolicy = pawn.outfits?.CurrentApparelPolicy?.label
+            });
+        }
+
+        public ApiResult<AiPoliciesListDto> GetPolicies(int? mapId)
+        {
+            if (Current.ProgramState != ProgramState.Playing || Current.Game == null)
+            {
+                return ApiResult<AiPoliciesListDto>.ServiceUnavailable("Game is not currently playing.");
+            }
+
+            Map map = MapHelper.ResolveMap(mapId);
+            if (map == null)
+            {
+                return ApiResult<AiPoliciesListDto>.Fail($"Map not found: {mapId?.ToString() ?? "current"}");
+            }
+
+            return ApiResult<AiPoliciesListDto>.Ok(new AiPoliciesListDto
+            {
+                FoodPolicies = Current.Game.foodRestrictionDatabase?.AllFoodRestrictions
+                    .Select(f => new AiPolicyEntryDto { Id = f.id, Label = f.label }).ToList() ?? new List<AiPolicyEntryDto>(),
+                DrugPolicies = Current.Game.drugPolicyDatabase?.AllPolicies
+                    .Select(d => new AiPolicyEntryDto { Id = d.id, Label = d.label }).ToList() ?? new List<AiPolicyEntryDto>(),
+                ReadingPolicies = Current.Game.readingPolicyDatabase?.AllReadingPolicies
+                    .Select(r => new AiPolicyEntryDto { Id = r.id, Label = r.label }).ToList() ?? new List<AiPolicyEntryDto>(),
+                ApparelPolicies = Current.Game.outfitDatabase?.AllOutfits
+                    .Select(o => new AiPolicyEntryDto { Id = o.id, Label = o.label }).ToList() ?? new List<AiPolicyEntryDto>(),
+                Areas = map.areaManager.AllAreas.Select(ToAreaDto).ToList()
             });
         }
 
@@ -281,10 +386,10 @@ namespace RIMAPI.Services
         {
             if (Current.ProgramState != ProgramState.Playing)
             {
-                return ApiResult<List<AiAreaDto>>.Fail("Game is not currently playing.");
+                return ApiResult<List<AiAreaDto>>.ServiceUnavailable("Game is not currently playing.");
             }
 
-            Map map = mapId.HasValue ? MapHelper.GetMapByID(mapId.Value) : Find.CurrentMap;
+            Map map = MapHelper.ResolveMap(mapId);
             if (map == null)
             {
                 return ApiResult<List<AiAreaDto>>.Fail($"Map not found: {mapId?.ToString() ?? "current"}");
@@ -296,12 +401,17 @@ namespace RIMAPI.Services
 
         public ApiResult<AiAreaDto> CreateArea(AiAreaCreateRequestDto request)
         {
+            if (Current.ProgramState != ProgramState.Playing)
+            {
+                return ApiResult<AiAreaDto>.ServiceUnavailable("Game is not currently playing.");
+            }
+
             if (request == null || string.IsNullOrWhiteSpace(request.Label))
             {
                 return ApiResult<AiAreaDto>.ValidationFail("label is required");
             }
 
-            Map map = MapHelper.GetMapByID(request.MapId);
+            Map map = MapHelper.ResolveMapOrDefault(request.MapId);
             if (map == null)
             {
                 return ApiResult<AiAreaDto>.Fail($"Map not found: {request.MapId}");
@@ -329,23 +439,30 @@ namespace RIMAPI.Services
 
         public ApiResult<AiAreaDto> UpdateAreaCells(AiAreaCellsRequestDto request)
         {
-            if (request == null || string.IsNullOrWhiteSpace(request.Label) || string.IsNullOrWhiteSpace(request.Mode))
+            if (Current.ProgramState != ProgramState.Playing)
             {
-                return ApiResult<AiAreaDto>.ValidationFail("label and mode are required");
+                return ApiResult<AiAreaDto>.ServiceUnavailable("Game is not currently playing.");
             }
 
-            Map map = MapHelper.GetMapByID(request.MapId);
+            if (request == null || (!request.AreaId.HasValue && string.IsNullOrWhiteSpace(request.Label)) || string.IsNullOrWhiteSpace(request.Mode))
+            {
+                return ApiResult<AiAreaDto>.ValidationFail("area_id or label, and mode are required");
+            }
+
+            Map map = MapHelper.ResolveMapOrDefault(request.MapId);
             if (map == null)
             {
                 return ApiResult<AiAreaDto>.Fail($"Map not found: {request.MapId}");
             }
 
-            Area area = map.areaManager.AllAreas.FirstOrDefault(
-                a => a.Label.Equals(request.Label.Trim(), StringComparison.OrdinalIgnoreCase)
-            );
+            Area area = request.AreaId.HasValue
+                ? map.areaManager.AllAreas.FirstOrDefault(a => a.ID == request.AreaId.Value)
+                : map.areaManager.AllAreas.FirstOrDefault(
+                    a => a.Label.Equals(request.Label.Trim(), StringComparison.OrdinalIgnoreCase)
+                );
             if (area == null)
             {
-                return ApiResult<AiAreaDto>.Fail($"Area not found: {request.Label}");
+                return ApiResult<AiAreaDto>.Fail($"Area not found: {request.AreaId?.ToString() ?? request.Label}");
             }
 
             string mode = request.Mode.Trim().ToLowerInvariant();
@@ -393,6 +510,11 @@ namespace RIMAPI.Services
             {
                 string valid = string.Join(", ", DefDatabase<PrisonerInteractionModeDef>.AllDefsListForReading.Select(d => d.defName));
                 return ApiResult<AiPrisonerInteractionResultDto>.ValidationFail($"Invalid prisoner interaction mode '{request.Mode}'. Valid: {valid}");
+            }
+
+            if (pawn.guest.IsInteractionDisabled(def) || (!def.allowOnWildMan && pawn.IsWildMan()))
+            {
+                return ApiResult<AiPrisonerInteractionResultDto>.ValidationFail($"Prisoner interaction mode '{def.defName}' is not available for {pawn.LabelShort}");
             }
 
             pawn.guest.SetExclusiveInteraction(def);

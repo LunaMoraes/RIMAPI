@@ -1,0 +1,273 @@
+title: '### :material-console: AI Command Surface Controller'
+desc: Generic RimWorld interaction surfaces (live Designators, FloatMenu options, Gizmos), DLC actions, and deterministic tick stepping.
+/api/v1/ai/designators:
+  desc: List live resolved `Designator` tools from `DesignationCategoryDef` tabs, including modded buildings (`build_def_name`) and orders.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/ai/designators?category=Orders'
+    ```
+  request: |-
+    **Request:**
+    No request body. Optional query params: `category`, `include_hidden`.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": [{"category": "Orders", "index": 0, "class_name": "RimWorld.Designator_Cancel", "label": "Cancel", "visible": true, "disabled": false}],
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/ai/designate:
+  desc: Invoke a live `Designator` (by `build_def_name`, `class_name`, or `label`) over `cells`, `point_a`/`point_b`, or `target_thing_id`.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/designate' \
+    --header 'Content-Type: application/json' \
+    --data '{"map_id":0,"build_def_name":"Wall","stuff_def_name":"WoodLog","point_a":{"x":12,"y":0,"z":12},"point_b":{"x":15,"y":0,"z":12}}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "map_id": 0,
+        "category": "Structure",
+        "build_def_name": "Wall",
+        "stuff_def_name": "WoodLog",
+        "point_a": {"x": 12, "y": 0, "z": 12},
+        "point_b": {"x": 15, "y": 0, "z": 12},
+        "omniscient": false
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"map_id": 0, "designator_label": "Wall", "designated_count": 4, "rejected_count": 0, "skipped_fogged_count": 0},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/pawn/options:
+  desc: Inspect live context right-click `FloatMenuMakerMap` options for a colonist at cell `(x, z)`.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/ai/pawn/options?pawn_id=123&x=30&z=30'
+    ```
+  request: |-
+    **Request:**
+    No request body. Query params: `pawn_id` (required), `x` (required), `z` (required), `omniscient` (optional).
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": [{"index": 0, "label": "Haul Steel x25", "disabled": false, "priority": "Default"}],
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/ai/pawn/options/invoke:
+  desc: Invoke a right-click `FloatMenu` option (by `option_index` or `option_label`) for a colonist at cell `(x, z)`.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/pawn/options/invoke' \
+    --header 'Content-Type: application/json' \
+    --data '{"pawn_id":123,"x":30,"z":30,"option_index":0}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "pawn_id": 123,
+        "x": 30,
+        "z": 30,
+        "option_index": 0,
+        "option_label": null,
+        "omniscient": false
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"pawn_id": 123, "pawn_name": "Humps", "option_index": 0, "label": "Haul Steel x25", "invoked": true},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/gizmos:
+  desc: Inspect live `Gizmo` buttons (`Command_Toggle`, `Command_Action`, etc.) on a pawn, thing, or zone.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/ai/gizmos?pawn_id=123'
+    ```
+  request: |-
+    **Request:**
+    No request body. Query params: `pawn_id` or `thing_id` or `zone_id` (`map_id` & `omniscient` optional).
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": [{"index": 0, "label": "Draft", "gizmo_type": "Command_Toggle", "visible": true, "disabled": false, "is_active": false}],
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/ai/gizmos/invoke:
+  desc: Invoke a live `Gizmo` toggle or action (by `gizmo_index` or `gizmo_label`) on a pawn, thing, or zone.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/gizmos/invoke' \
+    --header 'Content-Type: application/json' \
+    --data '{"pawn_id":123,"gizmo_label":"Draft"}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "map_id": 0,
+        "pawn_id": 123,
+        "thing_id": null,
+        "zone_id": null,
+        "gizmo_index": null,
+        "gizmo_label": "Draft",
+        "omniscient": false
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"gizmo_index": 0, "label": "Draft", "gizmo_type": "Command_Toggle", "invoked": true, "is_active": true},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/mech/work-mode:
+  desc: Set the `MechWorkModeDef` (`Work`, `Recharge`, `Escort`, `DormantSelfCharge`) on a Biotech mechanitor control group.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/mech/work-mode' \
+    --header 'Content-Type: application/json' \
+    --data '{"mechanitor_pawn_id":123,"control_group_index":0,"work_mode":"Work"}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "mechanitor_pawn_id": 123,
+        "mech_pawn_id": null,
+        "control_group_index": 0,
+        "work_mode": "Work"
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"mechanitor_pawn_id": 123, "control_group_index": 0, "work_mode": "Work", "mech_ids": []},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/pawn/ability:
+  desc: Queue casting a pawn `Ability` or Royalty psycast onto a target pawn or map cell.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/pawn/ability' \
+    --header 'Content-Type: application/json' \
+    --data '{"pawn_id":123,"ability_def_name":"WordOfTrust","target_pawn_id":456}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "pawn_id": 123,
+        "ability_def_name": "WordOfTrust",
+        "target_pawn_id": 456,
+        "target_position": null,
+        "destination_position": null,
+        "omniscient": false
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"pawn_id": 123, "pawn_name": "Humps", "ability_def_name": "WordOfTrust", "queued": true},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/time/advance:
+  desc: |-
+    Deterministically step simulation by 1..2500 ticks using `TickManager.DoSingleTick` within a 400ms wall-clock budget.
+    Automatically stops on new letters (`stop_on_letter`) or newly spotted hostiles (`stop_on_hostile`) and pauses afterwards (`pause_after`).
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/time/advance' \
+    --header 'Content-Type: application/json' \
+    --data '{"ticks":60,"stop_on_letter":true,"stop_on_hostile":true,"pause_after":true}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "map_id": null,
+        "ticks": 60,
+        "stop_on_letter": true,
+        "stop_on_hostile": true,
+        "pause_after": true,
+        "omniscient": false
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"start_tick": 1000, "end_tick": 1060, "ticks_requested": 60, "ticks_executed": 60, "stop_reason": "completed", "elapsed_ms": 42, "is_paused": true, "new_letters_count": 0},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST

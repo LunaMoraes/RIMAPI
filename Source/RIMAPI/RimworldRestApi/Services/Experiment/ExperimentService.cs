@@ -29,10 +29,10 @@ namespace RIMAPI.Services
                 return ApiResult<ExperimentIncidentResultDto>.ValidationFail("incident_def is required");
             }
 
-            Map map = request.MapId.HasValue ? MapHelper.GetMapByID(request.MapId.Value) : Find.CurrentMap;
+            Map map = MapHelper.ResolveMap(request.MapId);
             if (map == null)
             {
-                return ApiResult<ExperimentIncidentResultDto>.Fail($"Map not found: {request.MapId?.ToString() ?? "current"}");
+                return ApiResult<ExperimentIncidentResultDto>.Fail($"Map not found: {request.MapId?.ToString() ?? "home"}");
             }
 
             IncidentDef def = DefDatabase<IncidentDef>.AllDefsListForReading
@@ -114,10 +114,10 @@ namespace RIMAPI.Services
                 return ApiResult<ExperimentStatusDto>.Fail("Game is not currently playing.");
             }
 
-            Map map = mapId.HasValue ? MapHelper.GetMapByID(mapId.Value) : Find.CurrentMap;
+            Map map = MapHelper.ResolveMap(mapId);
             if (map == null)
             {
-                return ApiResult<ExperimentStatusDto>.Fail($"Map not found: {mapId?.ToString() ?? "current"}");
+                return ApiResult<ExperimentStatusDto>.Fail($"Map not found: {mapId?.ToString() ?? "home"}");
             }
 
             int hostiles = map.mapPawns.AllPawnsSpawned.Count(p => !p.Dead && p.HostileTo(Faction.OfPlayer));

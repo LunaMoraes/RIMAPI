@@ -32,7 +32,7 @@ public class OrderService : IOrderService
             );
         }
 
-        var map = MapHelper.GetMapByID(request.MapId);
+        var map = MapHelper.ResolveMapOrDefault(request.MapId);
         if (map == null)
         {
             return ApiResult<DesignateResultDto>.Fail($"Map with id: {request.MapId} not found");
@@ -43,7 +43,9 @@ public class OrderService : IOrderService
         CellRect rect = CellRect.FromLimits(start, end);
 
         int designated = 0;
+        int affected = 0;
         int alreadyDesignated = 0;
+        int skippedFogged = 0;
         int cellsScanned = 0;
 
         foreach (IntVec3 c in rect)
@@ -51,64 +53,74 @@ public class OrderService : IOrderService
             if (!c.InBounds(map)) continue;
             cellsScanned++;
 
+            if (!request.Omniscient && c.Fogged(map))
+            {
+                skippedFogged++;
+                continue;
+            }
+
             switch (type)
             {
                 case "mine":
                     HandleMine(map, c, ref designated, ref alreadyDesignated);
                     break;
                 case "deconstruct":
-                    HandleBuildingDesignation(map, c, DesignationDefOf.Deconstruct, b => b.def.category == ThingCategory.Building, ref designated, ref alreadyDesignated);
+                    HandleBuildingDesignation(map, c, DesignationDefOf.Deconstruct, b => b is Building building && building.DeconstructibleBy(Faction.OfPlayer), ref designated, ref alreadyDesignated);
                     break;
                 case "uninstall":
-                    HandleBuildingDesignation(map, c, DesignationDefOf.Uninstall, b => b.def.Minifiable && b.Faction == Faction.OfPlayer, ref designated, ref alreadyDesignated);
+                    HandleBuildingDesignation(map, c, DesignationDefOf.Uninstall, b => b is Building building && !building.Destroyed && building.def.Minifiable && building.Faction == Faction.OfPlayer, ref designated, ref alreadyDesignated);
                     break;
                 case "harvest":
-                    HandlePlantDesignation(map, c, DesignationDefOf.HarvestPlant, p => p.HarvestableNow, ref designated, ref alreadyDesignated);
+                    HandlePlantDesignation(map, c, DesignationDefOf.HarvestPlant, p => p.def.plant != null && !p.def.plant.IsTree && p.HarvestableNow, ref designated, ref alreadyDesignated);
                     break;
                 case "chop":
-                    HandlePlantDesignation(map, c, DesignationDefOf.CutPlant, p => p.def.plant != null && p.def.plant.IsTree, ref designated, ref alreadyDesignated);
+                    HandlePlantDesignation(map, c, DesignationDefOf.HarvestPlant, p => p.def.plant != null && p.def.plant.IsTree && p.HarvestableNow, ref designated, ref alreadyDesignated);
                     break;
                 case "cut":
                 case "cut-plant":
-                    HandlePlantDesignation(map, c, DesignationDefOf.CutPlant, _ => true, ref designated, ref alreadyDesignated);
+                    HandlePlantDesignation(map, c, DesignationDefOf.CutPlant, p => p.def.plant != null, ref designated, ref alreadyDesignated);
                     break;
                 case "haul":
                     HandleHaul(map, c, ref designated, ref alreadyDesignated);
                     break;
                 case "hunt":
-                    HandleAnimalDesignation(map, c, DesignationDefOf.Hunt, p => p.Faction != Faction.OfPlayer, ref designated, ref alreadyDesignated);
+                    HandlePawnDesignation(map, c, DesignationDefOf.Hunt, p => p.RaceProps.Animal && p.Faction == null && !p.Dead && !p.InAggroMentalState, ref designated, ref alreadyDesignated);
                     break;
                 case "tame":
-                    HandleAnimalDesignation(map, c, DesignationDefOf.Tame, p => p.Faction == null && p.AnimalOrWildMan(), ref designated, ref alreadyDesignated);
+                    HandlePawnDesignation(map, c, DesignationDefOf.Tame, p => p.AnimalOrWildMan() && p.Faction == null && !p.Dead && TameUtility.CanTame(p), ref designated, ref alreadyDesignated);
                     break;
                 case "slaughter":
-                    HandleAnimalDesignation(map, c, DesignationDefOf.Slaughter, p => p.Faction == Faction.OfPlayer, ref designated, ref alreadyDesignated);
+                    HandlePawnDesignation(map, c, DesignationDefOf.Slaughter, p => p.RaceProps.Animal && p.Faction == Faction.OfPlayer && !p.Dead && !p.InAggroMentalState, ref designated, ref alreadyDesignated);
                     break;
                 case "smooth":
                     HandleSmooth(map, c, ref designated, ref alreadyDesignated);
                     break;
                 case "claim":
-                    HandleClaim(map, c, ref designated);
+                    HandleClaim(map, c, ref affected);
                     break;
                 case "forbid":
-                    HandleForbid(map, c, true, ref designated);
+                    HandleForbid(map, c, true, ref affected);
                     break;
                 case "unforbid":
-                    HandleForbid(map, c, false, ref designated);
+                    HandleForbid(map, c, false, ref affected);
                     break;
                 case "cancel":
                 case "remove-all":
-                    HandleCancelOrRemove(map, c, type == "cancel", ref designated);
+                    HandleCancelOrRemove(map, c, type == "cancel", ref affected);
                     break;
             }
         }
 
+        affected += designated;
+
         return ApiResult<DesignateResultDto>.Ok(new DesignateResultDto
         {
-            MapId = request.MapId,
+            MapId = map.uniqueID,
             Type = type,
             DesignatedCount = designated,
             AlreadyDesignatedCount = alreadyDesignated,
+            AffectedCount = affected,
+            SkippedFoggedCount = skippedFogged,
             CellsScanned = cellsScanned
         });
     }
@@ -138,6 +150,14 @@ public class OrderService : IOrderService
                 alreadyDesignated++;
                 continue;
             }
+            var conflictDef = def == DesignationDefOf.Deconstruct ? DesignationDefOf.Uninstall
+                            : def == DesignationDefOf.Uninstall ? DesignationDefOf.Deconstruct
+                            : null;
+            if (conflictDef != null)
+            {
+                var conflict = map.designationManager.DesignationOn(t, conflictDef);
+                if (conflict != null) map.designationManager.RemoveDesignation(conflict);
+            }
             map.designationManager.AddDesignation(new Designation(t, def));
             designated++;
         }
@@ -155,6 +175,14 @@ public class OrderService : IOrderService
                 alreadyDesignated++;
                 continue;
             }
+            var conflictDef = def == DesignationDefOf.CutPlant ? DesignationDefOf.HarvestPlant
+                            : def == DesignationDefOf.HarvestPlant ? DesignationDefOf.CutPlant
+                            : null;
+            if (conflictDef != null)
+            {
+                var conflict = map.designationManager.DesignationOn(p, conflictDef);
+                if (conflict != null) map.designationManager.RemoveDesignation(conflict);
+            }
             map.designationManager.AddDesignation(new Designation(p, def));
             designated++;
         }
@@ -164,7 +192,7 @@ public class OrderService : IOrderService
     {
         foreach (var t in c.GetThingList(map).ToList())
         {
-            if (!t.def.EverHaulable) continue;
+            if (!t.def.designateHaulable || t.IsInValidStorage()) continue;
             if (map.designationManager.DesignationOn(t, DesignationDefOf.Haul) != null)
             {
                 alreadyDesignated++;
@@ -175,17 +203,25 @@ public class OrderService : IOrderService
         }
     }
 
-    private static void HandleAnimalDesignation(
+    private static void HandlePawnDesignation(
         Map map, IntVec3 c, DesignationDef def, Func<Pawn, bool> predicate,
         ref int designated, ref int alreadyDesignated)
     {
         foreach (var p in c.GetThingList(map).OfType<Pawn>().ToList())
         {
-            if (!p.RaceProps.Animal || !predicate(p)) continue;
+            if (!predicate(p)) continue;
             if (map.designationManager.DesignationOn(p, def) != null)
             {
                 alreadyDesignated++;
                 continue;
+            }
+            var conflictDef = def == DesignationDefOf.Hunt ? DesignationDefOf.Tame
+                            : def == DesignationDefOf.Tame ? DesignationDefOf.Hunt
+                            : null;
+            if (conflictDef != null)
+            {
+                var conflict = map.designationManager.DesignationOn(p, conflictDef);
+                if (conflict != null) map.designationManager.RemoveDesignation(conflict);
             }
             map.designationManager.AddDesignation(new Designation(p, def));
             designated++;

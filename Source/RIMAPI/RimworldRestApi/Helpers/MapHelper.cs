@@ -30,6 +30,38 @@ namespace RIMAPI.Helpers
             return null;
         }
 
+        /// <summary>
+        /// Resolves a map by explicit ID, or defaults to the player's home map rather than UI-dependent Find.CurrentMap.
+        /// </summary>
+        public static Map ResolveMap(int? mapId)
+        {
+            if (Current.ProgramState != ProgramState.Playing || Current.Game == null || Find.Maps == null)
+                return null;
+
+            if (mapId.HasValue)
+                return GetMapByID(mapId.Value);
+
+            return Find.AnyPlayerHomeMap ?? Find.CurrentMap ?? Find.Maps.FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Resolves a map ID from a JSON DTO where omitted map_id deserializes as 0.
+        /// </summary>
+        public static Map ResolveMapOrDefault(int mapId)
+        {
+            if (Current.ProgramState != ProgramState.Playing || Current.Game == null || Find.Maps == null)
+                return null;
+
+            Map map = GetMapByID(mapId);
+            if (map != null)
+                return map;
+
+            if (mapId == 0)
+                return Find.AnyPlayerHomeMap ?? Find.CurrentMap ?? Find.Maps.FirstOrDefault();
+
+            return null;
+        }
+
         public static List<MapDto> GetMaps()
         {
             var maps = new List<MapDto>();

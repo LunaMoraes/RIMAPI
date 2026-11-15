@@ -1,0 +1,72 @@
+title: '### :material-robot: AI Controller'
+desc: Compact colony observation endpoints for autonomous AI colony-management agents.
+/api/v1/ai/snapshot:
+  desc: |-
+    Returns a compact colony snapshot (time, weather, power, resources, colonists, threats, alerts, letters, research, zones).
+    Filters out fogged threats, fogged resources, and non-player map entities by default unless `?omniscient=true`.
+
+    Optional query parameters:
+    - `map_id`: integer map unique ID (defaults to player home / current map)
+    - `omniscient`: boolean (`false` default)
+    - `include`: comma-separated extra sections (`game_conditions`, `designations`, `prisoners`, `guests`, `animals`, `mechs`, or `all`)
+    - `since_tick`: integer tick watermark (populates `since_tick` and `ticks_elapsed`)
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET \
+    --url 'http://localhost:8765/api/v1/ai/snapshot?include=prisoners,mechs'
+    ```
+  request: |-
+    **Request:**
+    No request body. Optional query params: `map_id`, `omniscient`, `include`, `since_tick`.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {
+            "map_id": 0,
+            "program_state": "Playing",
+            "omniscient": false,
+            "time": { "tick": 12000, "game_speed": "Normal", "is_paused": true },
+            "colonists": [],
+            "threats": { "hostile_count": 0, "truncated_hostiles": false, "hostiles": [] }
+        },
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/ai/designations:
+  desc: |-
+    List active designations on the map (`Mining`, `Deconstruct`, `HarvestPlant`, etc.).
+    Filters out designations in fogged cells unless `?omniscient=true`.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET \
+    --url 'http://localhost:8765/api/v1/ai/designations?map_id=0'
+    ```
+  request: |-
+    **Request:**
+    No request body. Optional query params: `map_id`, `omniscient`.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": [
+            {
+                "def_name": "Mine",
+                "target_type": "cell",
+                "target_id": null,
+                "target_label": null,
+                "position": {"x": 20, "y": 0, "z": 35}
+            }
+        ],
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET

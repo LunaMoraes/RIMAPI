@@ -61,6 +61,14 @@ namespace RIMAPI.Core
         public static ApiResult<T> ValidationFail(string reason) =>
             Fail($"Request validation failed: {reason}");
 
+        /// <summary>Fail with a message that maps to HTTP 409 (state conflict).</summary>
+        public static ApiResult<T> StateConflict(string reason) =>
+            Fail($"State conflict: {reason}");
+
+        /// <summary>Fail with a message that maps to HTTP 503 (service unavailable).</summary>
+        public static ApiResult<T> ServiceUnavailable(string reason) =>
+            Fail($"Service unavailable: {reason}");
+
         public static ApiResult<T> Partial(T data, IEnumerable<string> warnings) =>
             new ApiResult<T>
             {
@@ -85,6 +93,14 @@ namespace RIMAPI.Core
         /// <summary>Fail with a message that maps to HTTP 400 (it contains "validation").</summary>
         public static ApiResult ValidationFail(string reason) =>
             Fail($"Request validation failed: {reason}");
+
+        /// <summary>Fail with a message that maps to HTTP 409 (state conflict).</summary>
+        public static ApiResult StateConflict(string reason) =>
+            Fail($"State conflict: {reason}");
+
+        /// <summary>Fail with a message that maps to HTTP 503 (service unavailable).</summary>
+        public static ApiResult ServiceUnavailable(string reason) =>
+            Fail($"Service unavailable: {reason}");
 
         public static ApiResult Unimplemented() =>
             new ApiResult { Success = false, Errors = { "Not implemented" } };
@@ -152,7 +168,7 @@ namespace RIMAPI.Core
         )
         {
             var result = ApiResult.Fail(errorMessage);
-            await SendApiResult(response, result);
+            await WriteResponse(response, statusCode, result);
         }
 
         public static async Task SendValidationError(
@@ -176,44 +192,42 @@ namespace RIMAPI.Core
 
         private static HttpStatusCode DetermineStatusCode<T>(ApiResult<T> result)
         {
-            if (result.Success)
-            {
-                if (result.Warnings?.Any() == true)
-                    return HttpStatusCode.OK; // 200 with warnings
-                return HttpStatusCode.OK; // 200
-            }
-            else
-            {
-                if (result.Errors?.Any(e => e.Contains("not found")) == true)
-                    return HttpStatusCode.NotFound; // 404
-                if (result.Errors?.Any(e => e.Contains("unauthorized")) == true)
-                    return HttpStatusCode.Unauthorized; // 401
-                if (result.Errors?.Any(e => e.Contains("validation")) == true)
-                    return HttpStatusCode.BadRequest; // 400
-
-                return HttpStatusCode.InternalServerError; // 500
-            }
+            return DetermineStatusCodeCore(result.Success, result.Errors);
         }
 
         private static HttpStatusCode DetermineStatusCode(ApiResult result)
         {
-            if (result.Success)
-            {
-                if (result.Warnings?.Any() == true)
-                    return HttpStatusCode.OK;
-                return HttpStatusCode.OK;
-            }
-            else
-            {
-                if (result.Errors?.Any(e => e.Contains("not found")) == true)
-                    return HttpStatusCode.NotFound;
-                if (result.Errors?.Any(e => e.Contains("unauthorized")) == true)
-                    return HttpStatusCode.Unauthorized;
-                if (result.Errors?.Any(e => e.Contains("validation")) == true)
-                    return HttpStatusCode.BadRequest;
+            return DetermineStatusCodeCore(result.Success, result.Errors);
+        }
 
+        private static HttpStatusCode DetermineStatusCodeCore(bool success, List<string> errors)
+        {
+            if (success)
+                return HttpStatusCode.OK;
+
+            if (errors == null || errors.Count == 0)
                 return HttpStatusCode.InternalServerError;
-            }
+
+            if (errors.Any(e => ContainsIgnoreCase(e, "not found")))
+                return HttpStatusCode.NotFound; // 404
+            if (errors.Any(e => ContainsIgnoreCase(e, "unauthorized")))
+                return HttpStatusCode.Unauthorized; // 401
+            if (errors.Any(e => ContainsIgnoreCase(e, "forbidden")))
+                return HttpStatusCode.Forbidden; // 403
+            if (errors.Any(e => ContainsIgnoreCase(e, "validation") || ContainsIgnoreCase(e, "invalid")))
+                return HttpStatusCode.BadRequest; // 400
+            if (errors.Any(e => ContainsIgnoreCase(e, "conflict") || ContainsIgnoreCase(e, "already active")))
+                return HttpStatusCode.Conflict; // 409
+            if (errors.Any(e => ContainsIgnoreCase(e, "not currently playing") || ContainsIgnoreCase(e, "service unavailable")))
+                return HttpStatusCode.ServiceUnavailable; // 503
+
+            return HttpStatusCode.InternalServerError; // 500
+        }
+
+        private static bool ContainsIgnoreCase(string source, string value)
+        {
+            return !string.IsNullOrEmpty(source)
+                && source.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static async Task WriteResponse(

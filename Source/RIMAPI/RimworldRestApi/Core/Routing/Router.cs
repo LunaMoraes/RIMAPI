@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 using RIMAPI.Http;
 
 namespace RIMAPI.Core
@@ -20,7 +21,7 @@ namespace RIMAPI.Core
             Dictionary<string, string>
         > _routeParameters;
 
-        public event Action<string, string, string, int, long> OnRouteCompleted;
+        public event Action<string, string, string, int, long, string> OnRouteCompleted;
 
         public Router()
         {
@@ -56,15 +57,53 @@ namespace RIMAPI.Core
 
             LogApi.Info($"Routing {method} {path}");
 
+            var hostHeader = request.Headers["Host"];
+            if (!IsAllowedHost(hostHeader))
+            {
+                await ResponseBuilder.SendError(
+                    response,
+                    HttpStatusCode.Forbidden,
+                    $"Forbidden Host header: {hostHeader}"
+                );
+                return;
+            }
+
+            var originHeader = request.Headers["Origin"];
+            if (!string.IsNullOrEmpty(originHeader) && !CorsUtil.IsAllowedLocalOrigin(originHeader, _allowedOrigins))
+            {
+                await ResponseBuilder.SendError(
+                    response,
+                    HttpStatusCode.Forbidden,
+                    $"Forbidden Origin: {originHeader}"
+                );
+                return;
+            }
+
             // Handle CORS preflight request (OPTIONS)
             if (method == "OPTIONS")
             {
-                CorsUtil.WritePreflight(context);
+                CorsUtil.WritePreflight(context, allowedOrigins: _allowedOrigins);
                 return;
             }
 
             // Ensure CORS headers are applied before response
             CorsUtil.WriteCors(request, response, _allowedOrigins);
+
+            if ((method == "POST" || method == "PUT" || method == "PATCH")
+                && request.HasEntityBody
+                && !string.IsNullOrEmpty(originHeader))
+            {
+                var contentType = request.Headers["Content-Type"];
+                if (string.IsNullOrEmpty(contentType)
+                    || !contentType.TrimStart().StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
+                {
+                    await ResponseBuilder.SendApiResult(
+                        response,
+                        ApiResult.ValidationFail("Content-Type must be application/json")
+                    );
+                    return;
+                }
+            }
 
             // 1) HEAD -> treat as GET but don't send a body
             var matchMethod = method == "HEAD" ? "GET" : method;
@@ -144,6 +183,25 @@ namespace RIMAPI.Core
 
                 await route.Handler(context);
             }
+            catch (Exception ex) when (
+                ex is ParameterNotFoundException
+                || ex is ParameterFormatException
+                || ex is JsonException
+            )
+            {
+                try
+                {
+                    CorsUtil.WriteCors(context.Request, context.Response, _allowedOrigins);
+                    await ResponseBuilder.SendApiResult(
+                        context.Response,
+                        ApiResult.ValidationFail(ex.Message)
+                    );
+                }
+                catch (Exception writeEx)
+                {
+                    LogApi.Warning($"Could not send validation error response: {writeEx.Message}");
+                }
+            }
             catch (Exception ex)
             {
                 // 1. Check for normal client disconnections (don't log as Error)
@@ -189,12 +247,14 @@ namespace RIMAPI.Core
                 if (context.Response.ContentType != "text/event-stream")
                 {
                     var reqPath = NormalizePath(context.Request.Url?.AbsolutePath ?? route.PathPattern);
+                    var actor = context.Request.Headers["X-RimApi-Actor"];
                     OnRouteCompleted?.Invoke(
                         route.Method,
                         reqPath,
                         context.Request.Url?.Query,
                         context.Response.StatusCode,
-                        sw.ElapsedMilliseconds
+                        sw.ElapsedMilliseconds,
+                        actor
                     );
                 }
 
@@ -231,6 +291,30 @@ namespace RIMAPI.Core
                 HttpStatusCode.NotFound,
                 $"Endpoint not found: {method} {path}"
             );
+        }
+
+        private static bool IsAllowedHost(string hostHeader)
+        {
+            if (string.IsNullOrWhiteSpace(hostHeader))
+                return true;
+
+            string trimmed = hostHeader.Trim();
+            string host;
+            if (trimmed.StartsWith("["))
+            {
+                int closeBracket = trimmed.IndexOf(']');
+                host = closeBracket > 0 ? trimmed.Substring(0, closeBracket + 1) : trimmed;
+            }
+            else
+            {
+                int colon = trimmed.IndexOf(':');
+                host = colon >= 0 ? trimmed.Substring(0, colon) : trimmed;
+            }
+
+            return host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("[::1]", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("::1", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string NormalizePath(string path)

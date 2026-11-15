@@ -189,6 +189,26 @@ namespace RIMAPI.Core
             return (T)GetService(typeof(T));
         }
 
+        public bool TryGetService<T>(out T service)
+        {
+            if (!_descriptors.ContainsKey(typeof(T)))
+            {
+                service = default(T);
+                return false;
+            }
+
+            try
+            {
+                service = GetService<T>();
+                return service != null;
+            }
+            catch
+            {
+                service = default(T);
+                return false;
+            }
+        }
+
         public object GetService(Type serviceType)
         {
             if (!_descriptors.TryGetValue(serviceType, out var descriptor))

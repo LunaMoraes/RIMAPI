@@ -43,6 +43,13 @@ namespace RIMAPI.Services
                     }
                 }
 
+                if (letter is ChoiceLetter_GrowthMoment gm)
+                {
+                    dto.GrowthMomentPawn = gm.pawn?.LabelShort;
+                    dto.PassionChoices = gm.passionChoices?.Select(s => s.defName).ToList() ?? new List<string>();
+                    dto.TraitChoices = gm.traitChoices?.Select(t => t.LabelCap.ToString()).ToList() ?? new List<string>();
+                }
+
                 list.Add(dto);
             }
 
@@ -53,7 +60,7 @@ namespace RIMAPI.Services
         {
             if (Current.ProgramState != ProgramState.Playing || Find.LetterStack == null)
             {
-                return ApiResult.Fail("Game is not currently playing.");
+                return ApiResult.ServiceUnavailable("Game is not currently playing.");
             }
 
             if (request == null || request.LetterId <= 0)
@@ -65,6 +72,54 @@ namespace RIMAPI.Services
             if (letter == null)
             {
                 return ApiResult.Fail($"Letter not found: {request.LetterId}");
+            }
+
+            if (letter is ChoiceLetter_GrowthMoment gm && (request.SelectedPassions != null || !string.IsNullOrWhiteSpace(request.SelectedTrait)))
+            {
+                var chosenPassions = new List<SkillDef>();
+                if (request.SelectedPassions != null)
+                {
+                    var availablePassions = gm.passionChoices ?? new List<SkillDef>();
+                    foreach (var sp in request.SelectedPassions)
+                    {
+                        if (string.IsNullOrWhiteSpace(sp)) continue;
+                        string trimmed = sp.Trim();
+                        var match = availablePassions.FirstOrDefault(s =>
+                            s.defName.Equals(trimmed, StringComparison.OrdinalIgnoreCase) ||
+                            s.label.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
+                        if (match == null)
+                        {
+                            return ApiResult.ValidationFail($"Passion choice '{sp}' is not among available growth moment choices");
+                        }
+                        if (!chosenPassions.Contains(match))
+                        {
+                            chosenPassions.Add(match);
+                        }
+                    }
+                }
+
+                Trait chosenTrait = null;
+                if (!string.IsNullOrWhiteSpace(request.SelectedTrait))
+                {
+                    var availableTraits = gm.traitChoices ?? new List<Trait>();
+                    string trimmed = request.SelectedTrait.Trim();
+                    chosenTrait = availableTraits.FirstOrDefault(t =>
+                        t.LabelCap.ToString().Equals(trimmed, StringComparison.OrdinalIgnoreCase) ||
+                        t.Label.Equals(trimmed, StringComparison.OrdinalIgnoreCase) ||
+                        t.def.defName.Equals(trimmed, StringComparison.OrdinalIgnoreCase) ||
+                        $"{t.def.defName}:{t.Degree}".Equals(trimmed, StringComparison.OrdinalIgnoreCase));
+                    if (chosenTrait == null)
+                    {
+                        return ApiResult.ValidationFail($"Trait choice '{request.SelectedTrait}' is not among available growth moment choices");
+                    }
+                }
+
+                gm.MakeChoices(chosenPassions, chosenTrait);
+                if (Find.LetterStack.LettersListForReading.Contains(letter))
+                {
+                    Find.LetterStack.RemoveLetter(letter);
+                }
+                return ApiResult.Ok();
             }
 
             if (request.ChoiceIndex.HasValue)
@@ -98,19 +153,28 @@ namespace RIMAPI.Services
         {
             if (Current.ProgramState != ProgramState.Playing)
             {
-                return ApiResult<List<AiStockpileSummaryDto>>.Fail("Game is not currently playing.");
+                return ApiResult<List<AiStockpileSummaryDto>>.ServiceUnavailable("Game is not currently playing.");
             }
 
-            Map map = mapId.HasValue ? MapHelper.GetMapByID(mapId.Value) : Find.CurrentMap;
+            Map map = MapHelper.ResolveMap(mapId);
             if (map == null)
             {
                 return ApiResult<List<AiStockpileSummaryDto>>.Fail($"Map not found: {mapId?.ToString() ?? "current"}");
             }
 
-            var list = map.zoneManager.AllZones
-                .OfType<Zone_Stockpile>()
-                .Select(ToStockpileDto)
-                .ToList();
+            var list = new List<AiStockpileSummaryDto>();
+            foreach (var zone in map.zoneManager.AllZones.OfType<Zone_Stockpile>())
+            {
+                list.Add(ToZoneSummaryDto(zone));
+            }
+
+            foreach (var building in map.listerBuildings.allBuildingsColonist)
+            {
+                if (building is IStoreSettingsParent storeParent && storeParent.StorageTabVisible && storeParent.GetStoreSettings() != null)
+                {
+                    list.Add(ToBuildingSummaryDto(building, storeParent.GetStoreSettings()));
+                }
+            }
 
             return ApiResult<List<AiStockpileSummaryDto>>.Ok(list);
         }
@@ -119,27 +183,67 @@ namespace RIMAPI.Services
         {
             if (Current.ProgramState != ProgramState.Playing)
             {
-                return ApiResult<AiStockpileSummaryDto>.Fail("Game is not currently playing.");
+                return ApiResult<AiStockpileSummaryDto>.ServiceUnavailable("Game is not currently playing.");
             }
 
-            if (request == null || (!request.ZoneId.HasValue && string.IsNullOrWhiteSpace(request.ZoneLabel)))
+            if (request == null || (!request.ZoneId.HasValue && !request.BuildingId.HasValue && string.IsNullOrWhiteSpace(request.ZoneLabel)))
             {
-                return ApiResult<AiStockpileSummaryDto>.ValidationFail("zone_id or zone_label is required");
+                return ApiResult<AiStockpileSummaryDto>.ValidationFail("zone_id, building_id, or zone_label is required");
             }
 
-            Map map = MapHelper.GetMapByID(request.MapId);
+            Map map = MapHelper.ResolveMapOrDefault(request.MapId);
             if (map == null)
             {
                 return ApiResult<AiStockpileSummaryDto>.Fail($"Map not found: {request.MapId}");
             }
 
-            Zone_Stockpile zone = request.ZoneId.HasValue
-                ? map.zoneManager.AllZones.OfType<Zone_Stockpile>().FirstOrDefault(z => z.ID == request.ZoneId.Value)
-                : map.zoneManager.AllZones.OfType<Zone_Stockpile>().FirstOrDefault(z => z.label.Equals(request.ZoneLabel.Trim(), StringComparison.OrdinalIgnoreCase));
+            Zone_Stockpile zone = null;
+            Building storageBuilding = null;
+            IStoreSettingsParent settingsParent = null;
 
-            if (zone == null)
+            if (request.BuildingId.HasValue)
             {
-                return ApiResult<AiStockpileSummaryDto>.Fail("Stockpile zone not found");
+                storageBuilding = map.listerBuildings.allBuildingsColonist
+                    .FirstOrDefault(b => b.thingIDNumber == request.BuildingId.Value && b is IStoreSettingsParent sp && sp.StorageTabVisible);
+                settingsParent = storageBuilding as IStoreSettingsParent;
+            }
+            else if (request.ZoneId.HasValue)
+            {
+                zone = map.zoneManager.AllZones.OfType<Zone_Stockpile>().FirstOrDefault(z => z.ID == request.ZoneId.Value);
+                if (zone != null)
+                {
+                    settingsParent = zone;
+                }
+                else
+                {
+                    storageBuilding = map.listerBuildings.allBuildingsColonist
+                        .FirstOrDefault(b => b.thingIDNumber == request.ZoneId.Value && b is IStoreSettingsParent sp && sp.StorageTabVisible);
+                    settingsParent = storageBuilding as IStoreSettingsParent;
+                }
+            }
+            else
+            {
+                string targetLabel = request.ZoneLabel.Trim();
+                zone = map.zoneManager.AllZones.OfType<Zone_Stockpile>()
+                    .FirstOrDefault(z => z.label.Equals(targetLabel, StringComparison.OrdinalIgnoreCase));
+                if (zone != null)
+                {
+                    settingsParent = zone;
+                }
+                else
+                {
+                    storageBuilding = map.listerBuildings.allBuildingsColonist
+                        .FirstOrDefault(b => b is IStoreSettingsParent sp && sp.StorageTabVisible &&
+                            (b.Label.Equals(targetLabel, StringComparison.OrdinalIgnoreCase) ||
+                             b.LabelCap.ToString().Equals(targetLabel, StringComparison.OrdinalIgnoreCase)));
+                    settingsParent = storageBuilding as IStoreSettingsParent;
+                }
+            }
+
+            StorageSettings settings = settingsParent?.GetStoreSettings();
+            if (settings == null)
+            {
+                return ApiResult<AiStockpileSummaryDto>.Fail("Stockpile zone or storage building not found");
             }
 
             if (!string.IsNullOrWhiteSpace(request.Priority))
@@ -148,10 +252,10 @@ namespace RIMAPI.Services
                 {
                     return ApiResult<AiStockpileSummaryDto>.ValidationFail("Invalid priority. Valid: Low, Normal, Preferred, Important, Critical");
                 }
-                zone.settings.Priority = prio;
+                settings.Priority = prio;
             }
 
-            var filter = zone.settings.filter;
+            var filter = settings.filter;
             if (request.ClearAll == true) filter.SetDisallowAll();
             if (request.AllowAll == true) filter.SetAllowAll(null);
 
@@ -161,7 +265,11 @@ namespace RIMAPI.Services
             ApplyDefChanges(filter, request.AllowDefs, true, warnings);
             ApplyDefChanges(filter, request.DisallowDefs, false, warnings);
 
-            var result = ApiResult<AiStockpileSummaryDto>.Ok(ToStockpileDto(zone));
+            var summary = zone != null
+                ? ToZoneSummaryDto(zone)
+                : ToBuildingSummaryDto(storageBuilding, settings);
+
+            var result = ApiResult<AiStockpileSummaryDto>.Ok(summary);
             if (warnings.Count > 0)
             {
                 result.Warnings.AddRange(warnings);
@@ -173,10 +281,10 @@ namespace RIMAPI.Services
         {
             if (Current.ProgramState != ProgramState.Playing)
             {
-                return ApiResult<List<AiTraderDto>>.Fail("Game is not currently playing.");
+                return ApiResult<List<AiTraderDto>>.ServiceUnavailable("Game is not currently playing.");
             }
 
-            Map map = mapId.HasValue ? MapHelper.GetMapByID(mapId.Value) : Find.CurrentMap;
+            Map map = MapHelper.ResolveMap(mapId);
             if (map == null)
             {
                 return ApiResult<List<AiTraderDto>>.Fail($"Map not found: {mapId?.ToString() ?? "current"}");
@@ -186,7 +294,7 @@ namespace RIMAPI.Services
 
             if (map.passingShipManager?.passingShips != null)
             {
-                foreach (var ship in map.passingShipManager.passingShips.OfType<TradeShip>())
+                foreach (var ship in map.passingShipManager.passingShips.OfType<TradeShip>().Where(s => s.CanTradeNow))
                 {
                     traders.Add(BuildTraderDto(ship, GetShipId(ship), ship.name, ship.def?.defName, "orbital"));
                 }
@@ -200,11 +308,96 @@ namespace RIMAPI.Services
             return ApiResult<List<AiTraderDto>>.Ok(traders);
         }
 
+        public ApiResult<AiTradeDealQuoteDto> GetTradeDeal(int? mapId, int traderId, int? negotiatorPawnId)
+        {
+            if (Current.ProgramState != ProgramState.Playing)
+            {
+                return ApiResult<AiTradeDealQuoteDto>.ServiceUnavailable("Game is not currently playing.");
+            }
+
+            if (traderId <= 0)
+            {
+                return ApiResult<AiTradeDealQuoteDto>.ValidationFail("trader_id is required");
+            }
+
+            if (TradeSession.Active)
+            {
+                return ApiResult<AiTradeDealQuoteDto>.StateConflict("A trade session is already active in the UI");
+            }
+
+            Map map = MapHelper.ResolveMap(mapId);
+            if (map == null)
+            {
+                return ApiResult<AiTradeDealQuoteDto>.Fail($"Map not found: {mapId?.ToString() ?? "current"}");
+            }
+
+            ITrader trader = FindTrader(map, traderId);
+            if (trader == null)
+            {
+                return ApiResult<AiTradeDealQuoteDto>.Fail($"Trader not found or cannot currently trade: {traderId}");
+            }
+
+            Pawn negotiator = ResolveNegotiator(map, negotiatorPawnId);
+            if (negotiator == null)
+            {
+                return ApiResult<AiTradeDealQuoteDto>.Fail("No available negotiator colonist found");
+            }
+
+            bool openedSession = false;
+            try
+            {
+                TradeSession.SetupWith(trader, negotiator, false);
+                openedSession = true;
+
+                var allTradeables = TradeSession.deal?.AllTradeables ?? new List<Tradeable>();
+                var lines = new List<AiTradeDealLineDto>(allTradeables.Count);
+
+                for (int i = 0; i < allTradeables.Count; i++)
+                {
+                    var t = allTradeables[i];
+                    lines.Add(new AiTradeDealLineDto
+                    {
+                        Index = i,
+                        DefName = t.ThingDef?.defName,
+                        Label = t.LabelCap.ToString(),
+                        ColonyCount = t.CountHeldBy(Transactor.Colony),
+                        TraderCount = t.CountHeldBy(Transactor.Trader),
+                        BuyPrice = t.TraderWillTrade ? (float)Math.Round(t.GetPriceFor(TradeAction.PlayerBuys), 2) : 0f,
+                        SellPrice = t.TraderWillTrade ? (float)Math.Round(t.GetPriceFor(TradeAction.PlayerSells), 2) : 0f,
+                        MinToTransfer = t.GetMinimumToTransfer(),
+                        MaxToTransfer = t.GetMaximumToTransfer(),
+                        IsCurrency = t.IsCurrency,
+                        IsFavor = t.IsFavor
+                    });
+                }
+
+                var currency = TradeSession.deal?.CurrencyTradeable;
+                return ApiResult<AiTradeDealQuoteDto>.Ok(new AiTradeDealQuoteDto
+                {
+                    MapId = map.uniqueID,
+                    TraderId = traderId,
+                    TraderName = trader.TraderName,
+                    NegotiatorPawnId = negotiator.thingIDNumber,
+                    NegotiatorName = negotiator.LabelShort,
+                    ColonySilver = currency?.CountHeldBy(Transactor.Colony) ?? 0,
+                    TraderSilver = currency?.CountHeldBy(Transactor.Trader) ?? 0,
+                    Lines = lines
+                });
+            }
+            finally
+            {
+                if (openedSession && TradeSession.Active)
+                {
+                    TradeSession.Close();
+                }
+            }
+        }
+
         public ApiResult<AiTradeExecuteResultDto> ExecuteTrade(AiTradeExecuteRequestDto request)
         {
             if (Current.ProgramState != ProgramState.Playing)
             {
-                return ApiResult<AiTradeExecuteResultDto>.Fail("Game is not currently playing.");
+                return ApiResult<AiTradeExecuteResultDto>.ServiceUnavailable("Game is not currently playing.");
             }
 
             if (request == null || request.TraderId <= 0 || request.Items == null || request.Items.Count == 0)
@@ -212,7 +405,12 @@ namespace RIMAPI.Services
                 return ApiResult<AiTradeExecuteResultDto>.ValidationFail("trader_id and non-empty items list are required");
             }
 
-            Map map = MapHelper.GetMapByID(request.MapId);
+            if (TradeSession.Active)
+            {
+                return ApiResult<AiTradeExecuteResultDto>.StateConflict("A trade session is already active in the UI");
+            }
+
+            Map map = MapHelper.ResolveMapOrDefault(request.MapId);
             if (map == null)
             {
                 return ApiResult<AiTradeExecuteResultDto>.Fail($"Map not found: {request.MapId}");
@@ -221,51 +419,130 @@ namespace RIMAPI.Services
             ITrader trader = FindTrader(map, request.TraderId);
             if (trader == null)
             {
-                return ApiResult<AiTradeExecuteResultDto>.Fail($"Trader not found: {request.TraderId}");
+                return ApiResult<AiTradeExecuteResultDto>.Fail($"Trader not found or cannot currently trade: {request.TraderId}");
             }
 
-            Pawn negotiator = request.NegotiatorPawnId.HasValue
-                ? PawnHelper.FindPawnById(request.NegotiatorPawnId.Value)
-                : map.mapPawns.FreeColonistsSpawned
-                    .Where(p => !p.Downed && !p.Dead)
-                    .OrderByDescending(p => p.skills?.GetSkill(SkillDefOf.Social)?.Level ?? 0)
-                    .FirstOrDefault();
-
+            Pawn negotiator = ResolveNegotiator(map, request.NegotiatorPawnId);
             if (negotiator == null)
             {
                 return ApiResult<AiTradeExecuteResultDto>.Fail("No available negotiator colonist found");
             }
 
+            bool openedSession = false;
             try
             {
                 TradeSession.SetupWith(trader, negotiator, false);
+                openedSession = true;
+
+                var allTradeables = TradeSession.deal.AllTradeables;
                 int processed = 0;
+                var warnings = new List<string>();
 
                 foreach (var order in request.Items)
                 {
-                    if (string.IsNullOrWhiteSpace(order.DefName) || order.CountDelta == 0) continue;
-                    var tradeable = TradeSession.deal.AllTradeables.FirstOrDefault(
-                        t => t.ThingDef != null && t.ThingDef.defName.Equals(order.DefName.Trim(), StringComparison.OrdinalIgnoreCase)
-                    );
-                    if (tradeable == null) continue;
+                    if (order == null || order.CountDelta == 0) continue;
+
+                    Tradeable tradeable = null;
+                    if (order.Index.HasValue)
+                    {
+                        int idx = order.Index.Value;
+                        if (idx < 0 || idx >= allTradeables.Count)
+                        {
+                            warnings.Add($"Tradeable index out of range: {idx}");
+                            continue;
+                        }
+                        tradeable = allTradeables[idx];
+                    }
+                    else if (!string.IsNullOrWhiteSpace(order.DefName))
+                    {
+                        string defName = order.DefName.Trim();
+                        tradeable = allTradeables.FirstOrDefault(
+                            t => t.ThingDef != null && t.ThingDef.defName.Equals(defName, StringComparison.OrdinalIgnoreCase)
+                        );
+                        if (tradeable == null)
+                        {
+                            warnings.Add($"Tradeable def_name not found in deal: {order.DefName}");
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        warnings.Add("Trade item order missing both index and def_name");
+                        continue;
+                    }
+
+                    if (!tradeable.TraderWillTrade)
+                    {
+                        warnings.Add($"Trader will not trade '{tradeable.LabelCap}'");
+                        continue;
+                    }
+
+                    int minTransfer = tradeable.GetMinimumToTransfer();
+                    int maxTransfer = tradeable.GetMaximumToTransfer();
+                    if (order.CountDelta < minTransfer || order.CountDelta > maxTransfer)
+                    {
+                        warnings.Add($"Order {order.CountDelta} for '{tradeable.LabelCap}' is outside allowed range [{minTransfer}..{maxTransfer}]");
+                        continue;
+                    }
 
                     tradeable.AdjustTo(order.CountDelta);
+                    if (tradeable.CountToTransfer != order.CountDelta)
+                    {
+                        warnings.Add($"Adjusted '{tradeable.LabelCap}' to {tradeable.CountToTransfer} instead of requested {order.CountDelta}");
+                    }
+
                     processed++;
                 }
 
-                bool executed = TradeSession.deal.TryExecute(out bool actuallyTraded);
-                return ApiResult<AiTradeExecuteResultDto>.Ok(new AiTradeExecuteResultDto
+                int netSilverChange = TradeSession.deal.CurrencyTradeable?.CountToTransfer ?? 0;
+                bool executed = false;
+
+                if (!request.DryRun && processed > 0)
+                {
+                    executed = TradeSession.deal.TryExecute(out bool actuallyTraded) && actuallyTraded;
+                    if (!executed)
+                    {
+                        warnings.Add("TradeDeal.TryExecute did not complete the transaction (check silver balance or trader capacity).");
+                    }
+                }
+
+                var dto = new AiTradeExecuteResultDto
                 {
                     TraderId = request.TraderId,
                     TraderName = trader.TraderName,
-                    Executed = executed && actuallyTraded,
-                    ItemsProcessed = processed
-                });
+                    DryRun = request.DryRun,
+                    Executed = executed,
+                    ItemsProcessed = processed,
+                    NetSilverChange = netSilverChange
+                };
+
+                var result = ApiResult<AiTradeExecuteResultDto>.Ok(dto);
+                if (warnings.Count > 0)
+                {
+                    result.Warnings.AddRange(warnings);
+                }
+                return result;
             }
             finally
             {
-                TradeSession.Close();
+                if (openedSession && TradeSession.Active)
+                {
+                    TradeSession.Close();
+                }
             }
+        }
+
+        private static Pawn ResolveNegotiator(Map map, int? negotiatorPawnId)
+        {
+            if (negotiatorPawnId.HasValue)
+            {
+                return PawnHelper.FindPawnById(negotiatorPawnId.Value);
+            }
+
+            return map.mapPawns.FreeColonistsSpawned
+                .Where(p => !p.Downed && !p.Dead)
+                .OrderByDescending(p => p.skills?.GetSkill(SkillDefOf.Social)?.Level ?? 0)
+                .FirstOrDefault();
         }
 
         private static int GetShipId(TradeShip ship)
@@ -275,7 +552,9 @@ namespace RIMAPI.Services
 
         private static ITrader FindTrader(Map map, int traderId)
         {
-            var ship = map.passingShipManager?.passingShips?.OfType<TradeShip>().FirstOrDefault(s => GetShipId(s) == traderId);
+            var ship = map.passingShipManager?.passingShips?
+                .OfType<TradeShip>()
+                .FirstOrDefault(s => s.CanTradeNow && GetShipId(s) == traderId);
             if (ship != null) return ship;
 
             return map.mapPawns.AllPawnsSpawned.FirstOrDefault(p => p.CanTradeNow && p.thingIDNumber == traderId);
@@ -335,15 +614,34 @@ namespace RIMAPI.Services
             }
         }
 
-        private static AiStockpileSummaryDto ToStockpileDto(Zone_Stockpile zone)
+        private static AiStockpileSummaryDto ToZoneSummaryDto(Zone_Stockpile zone)
         {
+            IntVec3 pos = zone.cells.Count > 0 ? zone.cells[0] : IntVec3.Invalid;
             return new AiStockpileSummaryDto
             {
                 Id = zone.ID,
+                StorageType = "zone",
+                DefName = null,
                 Label = zone.label,
                 Priority = zone.settings.Priority.ToString(),
                 CellCount = zone.CellCount,
-                AllowedDefsCount = zone.settings.filter.AllowedDefCount
+                AllowedDefsCount = zone.settings.filter.AllowedDefCount,
+                Position = pos.IsValid ? new PositionDto { X = pos.x, Y = pos.y, Z = pos.z } : null
+            };
+        }
+
+        private static AiStockpileSummaryDto ToBuildingSummaryDto(Building building, StorageSettings settings)
+        {
+            return new AiStockpileSummaryDto
+            {
+                Id = building.thingIDNumber,
+                StorageType = "building",
+                DefName = building.def?.defName,
+                Label = building.LabelCap.ToString(),
+                Priority = settings.Priority.ToString(),
+                CellCount = building.OccupiedRect().Area,
+                AllowedDefsCount = settings.filter.AllowedDefCount,
+                Position = new PositionDto { X = building.Position.x, Y = building.Position.y, Z = building.Position.z }
             };
         }
     }

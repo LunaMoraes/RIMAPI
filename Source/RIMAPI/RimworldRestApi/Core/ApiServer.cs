@@ -70,8 +70,7 @@ namespace RIMAPI.Core
 #endif
 
                 _router = new Router();
-                var dashboardService = _serviceProvider.GetService<IDashboardService>();
-                if (dashboardService != null)
+                if (_serviceProvider.TryGetService<IDashboardService>(out var dashboardService))
                 {
                     _router.OnRouteCompleted += dashboardService.RecordHttpAction;
                 }

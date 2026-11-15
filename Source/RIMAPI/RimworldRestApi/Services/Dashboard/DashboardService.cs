@@ -10,7 +10,8 @@ namespace RIMAPI.Services
     public class DashboardService : IDashboardService
     {
         private const int MaxActions = 200;
-        private readonly LinkedList<DashboardActionDto> _actions = new LinkedList<DashboardActionDto>();
+        private readonly LinkedList<DashboardActionDto> _writeActions = new LinkedList<DashboardActionDto>();
+        private readonly LinkedList<DashboardActionDto> _allActions = new LinkedList<DashboardActionDto>();
         private readonly object _lock = new object();
         private long _nextId = 1;
 
@@ -28,7 +29,7 @@ namespace RIMAPI.Services
             _sseService = sseService;
         }
 
-        public void RecordHttpAction(string method, string path, string query, int statusCode, long durationMs)
+        public void RecordHttpAction(string method, string path, string query, int statusCode, long durationMs, string actor)
         {
             if (string.IsNullOrEmpty(path)) return;
             if (path.StartsWith("/api/v1/dashboard", StringComparison.OrdinalIgnoreCase) ||
@@ -43,22 +44,28 @@ namespace RIMAPI.Services
                     ? "ai"
                     : "core";
 
-            var entry = CreateEntry(category, method, path, query, statusCode, durationMs, null);
-            AddAndPublish(entry);
+            string tier = ClassifyTier(method, path);
+            bool isReadOnly = string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase);
+            bool isSignificant = !isReadOnly || statusCode >= 400;
+
+            var entry = CreateEntry(category, tier, actor, method, path, query, statusCode, durationMs, null);
+            AddAndPublish(entry, isSignificant, publishSse: isSignificant);
         }
 
-        public void RecordAnnotation(string note)
+        public void RecordAnnotation(string note, string actor = null)
         {
-            var entry = CreateEntry("annotation", "NOTE", "/api/v1/experiment/annotation", null, 200, 0, note);
-            AddAndPublish(entry);
+            var entry = CreateEntry("annotation", "experiment", actor, "NOTE", "/api/v1/experiment/annotation", null, 200, 0, note);
+            AddAndPublish(entry, isSignificant: true, publishSse: true);
         }
 
-        public ApiResult<List<DashboardActionDto>> GetRecentActions(int limit)
+        public ApiResult<List<DashboardActionDto>> GetRecentActions(int limit, bool includeReads = false)
         {
             int clamped = Math.Max(1, Math.Min(limit, MaxActions));
             lock (_lock)
             {
-                var list = _actions.Take(clamped).ToList();
+                var source = includeReads ? _allActions : _writeActions;
+                var list = source.Take(clamped).ToList();
                 return ApiResult<List<DashboardActionDto>>.Ok(list);
             }
         }
@@ -67,30 +74,83 @@ namespace RIMAPI.Services
         {
             lock (_lock)
             {
-                _actions.Clear();
+                _writeActions.Clear();
+                _allActions.Clear();
             }
             return ApiResult.Ok();
         }
 
-        public ApiResult<DashboardOverviewDto> GetOverview(int? mapId, int actionLimit)
+        public ApiResult<DashboardOverviewDto> GetOverview(int? mapId, int actionLimit, bool includeReads = false)
         {
-            var snapshotResult = _aiSnapshotService.GetSnapshot(mapId);
-            if (!snapshotResult.Success)
+            bool isPlaying = Current.ProgramState == ProgramState.Playing && Current.Game != null && Find.Maps != null;
+            AiSnapshotDto snapshot = null;
+            List<string> warnings = null;
+
+            if (isPlaying)
             {
-                return ApiResult<DashboardOverviewDto>.Fail(snapshotResult.Errors.FirstOrDefault() ?? "Failed to get snapshot");
+                var snapshotResult = _aiSnapshotService.GetSnapshot(mapId);
+                if (snapshotResult.Success)
+                {
+                    snapshot = snapshotResult.Data;
+                }
+                else if (snapshotResult.Errors?.Count > 0)
+                {
+                    warnings = new List<string>(snapshotResult.Errors);
+                }
             }
 
-            var actions = GetRecentActions(actionLimit).Data ?? new List<DashboardActionDto>();
-            return ApiResult<DashboardOverviewDto>.Ok(new DashboardOverviewDto
+            var actions = GetRecentActions(actionLimit, includeReads).Data ?? new List<DashboardActionDto>();
+            var overview = new DashboardOverviewDto
             {
-                Snapshot = snapshotResult.Data,
+                ProgramState = Current.ProgramState.ToString(),
+                IsPlaying = isPlaying,
+                Snapshot = snapshot,
                 RecentActions = actions,
                 SseClientCount = _sseService?.GetClientCount() ?? 0
-            });
+            };
+
+            return warnings != null && warnings.Count > 0
+                ? ApiResult<DashboardOverviewDto>.Partial(overview, warnings)
+                : ApiResult<DashboardOverviewDto>.Ok(overview);
         }
 
-        private DashboardActionDto CreateEntry(
-            string category, string method, string path, string query,
+        private static string ClassifyTier(string method, string path)
+        {
+            if (path.StartsWith("/api/v1/experiment", StringComparison.OrdinalIgnoreCase))
+                return "experiment";
+
+            if (path.StartsWith("/api/v1/pawn/edit", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/v1/pawn/spawn", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/v1/item/spawn", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/v1/map/droppod", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/v1/map/destroy", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/v1/incident/trigger", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/v1/faction/goodwill", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/v1/dev/", StringComparison.OrdinalIgnoreCase))
+            {
+                return "cheat";
+            }
+
+            if (path.StartsWith("/api/v1/game/quit", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/v1/game/main-menu", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/v1/game/load", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/v1/game/start", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith("/api/v1/mods/configure", StringComparison.OrdinalIgnoreCase))
+            {
+                return "admin";
+            }
+
+            if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase))
+            {
+                return "observe";
+            }
+
+            return "act";
+        }
+
+        private static DashboardActionDto CreateEntry(
+            string category, string tier, string actor, string method, string path, string query,
             int statusCode, long durationMs, string note)
         {
             int tick = Current.ProgramState == ProgramState.Playing && Find.TickManager != null
@@ -107,21 +167,34 @@ namespace RIMAPI.Services
                 StatusCode = statusCode,
                 DurationMs = durationMs,
                 Category = category,
+                Tier = tier,
+                Actor = string.IsNullOrWhiteSpace(actor) ? null : actor.Trim(),
                 Note = note
             };
         }
 
-        private void AddAndPublish(DashboardActionDto entry)
+        private void AddAndPublish(DashboardActionDto entry, bool isSignificant, bool publishSse)
         {
             lock (_lock)
             {
                 entry.Id = _nextId++;
-                _actions.AddFirst(entry);
-                while (_actions.Count > MaxActions)
+                _allActions.AddFirst(entry);
+                while (_allActions.Count > MaxActions)
                 {
-                    _actions.RemoveLast();
+                    _allActions.RemoveLast();
+                }
+
+                if (isSignificant)
+                {
+                    _writeActions.AddFirst(entry);
+                    while (_writeActions.Count > MaxActions)
+                    {
+                        _writeActions.RemoveLast();
+                    }
                 }
             }
+
+            if (!publishSse) return;
 
             try
             {

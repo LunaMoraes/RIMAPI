@@ -1,0 +1,253 @@
+title: '### :material-account-group: AI Pawn Controller'
+desc: Pawn drafting, tactical movement/attack commands, policies, areas, and prisoner management.
+/api/v1/ai/pawn/draft:
+  desc: Draft or undraft a player-controlled colonist.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/pawn/draft' \
+    --header 'Content-Type: application/json' \
+    --data '{"pawn_id":123,"drafted":true}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "pawn_id": 123,
+        "drafted": true
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"pawn_id": 123, "name": "Humps", "is_drafted": true},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/pawn/command:
+  desc: |-
+    Command a drafted colonist to `move`, `attack` (target pawn or cell), or `wait`.
+    Rejects `attack` targeting fogged cells or pawns unless `omniscient: true`.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/pawn/command' \
+    --header 'Content-Type: application/json' \
+    --data '{"pawn_id":123,"action":"move","target_position":{"x":50,"y":0,"z":50},"auto_draft":true}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "pawn_id": 123,
+        "action": "move",
+        "target_position": {"x": 50, "y": 0, "z": 50},
+        "target_pawn_id": null,
+        "auto_draft": true,
+        "queue": false,
+        "omniscient": false
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"pawn_id": 123, "name": "Humps", "action": "move", "assigned_job": "Goto", "is_drafted": true},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/pawn/policy:
+  desc: Update colonist hostility response, self-tend, medical care, allowed area, and food/drug/reading/apparel policies by ID or label.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/pawn/policy' \
+    --header 'Content-Type: application/json' \
+    --data '{"pawn_id":123,"hostility_response":"Attack","self_tend":true}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "pawn_id": 123,
+        "hostility_response": "Attack",
+        "self_tend": true,
+        "medical_care": "NormalOrWorse",
+        "allowed_area_id": null,
+        "allowed_area": "Unrestricted",
+        "food_policy_id": null,
+        "food_policy": "Lavish",
+        "drug_policy": "Social drugs",
+        "reading_policy": "All",
+        "apparel_policy": "Anything"
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"pawn_id": 123, "name": "Humps", "hostility_response": "Attack", "self_tend": true},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/policies:
+  desc: List all colony policy IDs and labels (food, drug, reading, apparel) along with map areas.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/ai/policies?map_id=0'
+    ```
+  request: |-
+    **Request:**
+    No request body. Optional query param: `map_id`.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {
+            "food_policies": [{"id": 1, "label": "Lavish"}],
+            "drug_policies": [],
+            "reading_policies": [],
+            "apparel_policies": [],
+            "areas": []
+        },
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/ai/areas:
+  desc: List all map areas (Home, Allowed areas, etc.) with IDs and cell counts.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/ai/areas?map_id=0'
+    ```
+  request: |-
+    **Request:**
+    No request body. Optional query param: `map_id`.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": [{"id": 1, "label": "Home", "type": "Area_Home", "cell_count": 120, "is_home": true}],
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/ai/areas/create:
+  desc: Create a new allowed area on the map, optionally filling a rectangular region.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/areas/create' \
+    --header 'Content-Type: application/json' \
+    --data '{"map_id":0,"label":"SafeZone","point_a":{"x":10,"y":0,"z":10},"point_b":{"x":20,"y":0,"z":20}}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "map_id": 0,
+        "label": "SafeZone",
+        "point_a": {"x": 10, "y": 0, "z": 10},
+        "point_b": {"x": 20, "y": 0, "z": 20}
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"id": 5, "label": "SafeZone", "type": "Area_Allowed", "cell_count": 121, "is_home": false},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/areas/cells:
+  desc: Add, remove, or clear cells in an existing area (by `area_id` or `label`).
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/areas/cells' \
+    --header 'Content-Type: application/json' \
+    --data '{"map_id":0,"label":"SafeZone","mode":"add","point_a":{"x":21,"y":0,"z":10},"point_b":{"x":25,"y":0,"z":20}}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "map_id": 0,
+        "area_id": null,
+        "label": "SafeZone",
+        "mode": "add",
+        "point_a": {"x": 21, "y": 0, "z": 10},
+        "point_b": {"x": 25, "y": 0, "z": 20}
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"id": 5, "label": "SafeZone", "type": "Area_Allowed", "cell_count": 176, "is_home": false},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/prisoner/interaction:
+  desc: Set a colony prisoner's interaction mode, validating `IsInteractionDisabled` and `allowOnWildMan`.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/prisoner/interaction' \
+    --header 'Content-Type: application/json' \
+    --data '{"pawn_id":456,"mode":"ReduceResistance"}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "pawn_id": 456,
+        "mode": "ReduceResistance"
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"pawn_id": 456, "name": "Raider", "interaction_mode": "ReduceResistance", "resistance": 14.5},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST

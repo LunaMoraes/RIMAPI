@@ -6,5 +6,6 @@ namespace RIMAPI.Core
     {
         T GetService<T>();
         object GetService(Type type);
+        bool TryGetService<T>(out T service);
     }
 }

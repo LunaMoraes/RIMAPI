@@ -33,19 +33,13 @@ namespace RIMAPI.Controllers
         }
 
         [Get("/api/v1/ai/zones/stockpile")]
-        [EndpointMetadata("List all stockpile zones with priority and allowed def counts.")]
+        [EndpointMetadata("List all stockpile zones and IStoreSettingsParent storage buildings with priority and allowed def counts.")]
         public async Task GetStockpiles(RimApiContext context)
         {
-            int? mapId = null;
-            string mapIdRaw = RequestParser.GetStringParameter(context, "map_id", required: false);
-            if (!string.IsNullOrEmpty(mapIdRaw))
+            if (!RequestParser.TryGetOptionalInt(context, "map_id", out int? mapId, out string error))
             {
-                if (!int.TryParse(mapIdRaw, out int parsed))
-                {
-                    await context.SendJsonResponse(ApiResult.ValidationFail("Invalid map_id query parameter: must be an integer"));
-                    return;
-                }
-                mapId = parsed;
+                await context.SendJsonResponse(ApiResult.ValidationFail(error));
+                return;
             }
 
             var result = _extrasService.GetStockpiles(mapId);
@@ -53,7 +47,7 @@ namespace RIMAPI.Controllers
         }
 
         [Post("/api/v1/ai/zones/stockpile/filter")]
-        [EndpointMetadata("Update a stockpile zone's priority and storage filter (allow/disallow categories or ThingDefs).")]
+        [EndpointMetadata("Update a stockpile zone or storage building priority and storage filter (allow/disallow categories or ThingDefs).")]
         public async Task UpdateStockpileFilter(RimApiContext context)
         {
             var body = await context.Request.ReadBodyAsync<AiStockpileFilterRequestDto>();
@@ -65,19 +59,37 @@ namespace RIMAPI.Controllers
         [EndpointMetadata("List active orbital trade ships and visiting trade caravans on the map.")]
         public async Task GetTraders(RimApiContext context)
         {
-            int? mapId = null;
-            string mapIdRaw = RequestParser.GetStringParameter(context, "map_id", required: false);
-            if (!string.IsNullOrEmpty(mapIdRaw))
+            if (!RequestParser.TryGetOptionalInt(context, "map_id", out int? mapId, out string error))
             {
-                if (!int.TryParse(mapIdRaw, out int parsed))
-                {
-                    await context.SendJsonResponse(ApiResult.ValidationFail("Invalid map_id query parameter: must be an integer"));
-                    return;
-                }
-                mapId = parsed;
+                await context.SendJsonResponse(ApiResult.ValidationFail(error));
+                return;
             }
 
             var result = _extrasService.GetTraders(mapId);
+            await context.SendJsonResponse(result);
+        }
+
+        [Get("/api/v1/ai/trade/deal")]
+        [EndpointMetadata("Get live negotiated TradeDeal quote lines (exact prices, min/max transfer counts, and silver balance) for a trader.")]
+        public async Task GetTradeDeal(RimApiContext context)
+        {
+            if (!RequestParser.TryGetOptionalInt(context, "map_id", out int? mapId, out string mapErr))
+            {
+                await context.SendJsonResponse(ApiResult.ValidationFail(mapErr));
+                return;
+            }
+            if (!RequestParser.TryGetOptionalInt(context, "trader_id", out int? traderId, out string traderErr) || !traderId.HasValue)
+            {
+                await context.SendJsonResponse(ApiResult.ValidationFail(traderErr ?? "trader_id query parameter is required"));
+                return;
+            }
+            if (!RequestParser.TryGetOptionalInt(context, "negotiator_pawn_id", out int? negotiatorPawnId, out string negErr))
+            {
+                await context.SendJsonResponse(ApiResult.ValidationFail(negErr));
+                return;
+            }
+
+            var result = _extrasService.GetTradeDeal(mapId, traderId.Value, negotiatorPawnId);
             await context.SendJsonResponse(result);
         }
 

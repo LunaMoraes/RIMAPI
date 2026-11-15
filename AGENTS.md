@@ -40,21 +40,25 @@ dotnet build Source/RIMAPI/RimApi.csproj -c Release-1.7
 
 ## Architecture Summary
 
-- **Request Pipeline:** HTTP transport (`HttpListenerTransport` on 1.5/1.6, `WatsonTransport` on 1.7) → thread-safe Request Queue → `ApiServer.ProcessTick()` (main Unity thread, ≤10 req/tick) → `Router` → `Controller` (thin, no `Verse.*` calls) → `Service` (RimWorld API access) → JSON `ApiResult<T>` (`snake_case`).
-- **DI:** Custom `ServiceCollection` / `ServiceProvider` registered in `ApiServer.CreateDefaultServiceProvider()`.
-- **Real-time Events:** `SseService` + Harmony patches in `Source/RIMAPI/RimworldRestApi/Hooks/`.
+- **Request Pipeline:** HTTP transport (`HttpListenerTransport` on 1.5/1.6, `WatsonTransport` on 1.7) → thread-safe Request Queue → `ApiServer.ProcessQueuedRequests()` (main Unity thread, ≤10 req/tick) → `Router` (localhost `Host`/CORS/Content-Type checks + validation exception mapping) → `Controller` (thin, no `Verse.*` calls) → `Service` (RimWorld API access) → JSON `ApiResult<T>` (`snake_case`).
+- **DI:** Custom `ServiceCollection` / `ServiceProvider` (`TryGetService<T>` safe lookup) with `RegisterDiscoveredComponents()` auto-discovery + explicit registration in `ApiServer.CreateDefaultServiceProvider()`.
+- **Real-time Events:** `SseService` (`snake_case` serialization) + Harmony patches in `Source/RIMAPI/RimworldRestApi/Hooks/`.
 - **Extensions:** Implement `IRimApiExtension` for modular route/service registration.
 
 ## Custom Endpoints & Tooling
 
 - **AI Agent Routes (`/api/v1/ai/...` + expanded `OrderController`):**
-  - `GET /api/v1/ai/snapshot` — Compact colony state snapshot (`AiController`)
-  - `POST /api/v1/order/designate/area` — Expanded designations (`mine`, `deconstruct`, `harvest`, `chop`, `cut`, `haul`, `hunt`, `tame`, `slaughter`, `smooth`, `claim`, `uninstall`, `forbid`, `unforbid`, `cancel`, `remove-all`) with count feedback
-  - `POST /api/v1/ai/pawn/draft`, `POST /api/v1/ai/pawn/command`, `POST /api/v1/ai/pawn/policy`, `GET /api/v1/ai/areas`, `POST /api/v1/ai/areas/create`, `POST /api/v1/ai/areas/cells`, `POST /api/v1/ai/prisoner/interaction` (`AiPawnController`)
-  - `GET /api/v1/ai/letters`, `POST /api/v1/ai/letters/dismiss`, `GET /api/v1/ai/zones/stockpile`, `POST /api/v1/ai/zones/stockpile/filter`, `GET /api/v1/ai/trade/traders`, `POST /api/v1/ai/trade/execute` (`AiColonyExtrasController`)
+  - `GET /api/v1/ai/snapshot` — Fair-play fog-of-war colony state snapshot by default (`?omniscient=true`, `?include=game_conditions,designations,prisoners,guests,animals,mechs`, `?since_tick=`) (`AiController`)
+  - `GET /api/v1/ai/designations` — List active map designations respecting fog of war (`AiController`)
+  - `POST /api/v1/order/designate/area` — Expanded designations (`mine`, `deconstruct`, `harvest`, `chop`, `cut`, `haul`, `hunt`, `tame`, `slaughter`, `smooth`, `claim`, `uninstall`, `forbid`, `unforbid`, `cancel`, `remove-all`) respecting fog of war by default (`omniscient`) with `affected_count` & `skipped_fogged_count`
+  - `POST /api/v1/ai/pawn/draft`, `POST /api/v1/ai/pawn/command` (`attack` fog check), `POST /api/v1/ai/pawn/policy` (supports area/policy IDs + reading policy), `GET /api/v1/ai/policies`, `GET /api/v1/ai/areas`, `POST /api/v1/ai/areas/create`, `POST /api/v1/ai/areas/cells`, `POST /api/v1/ai/prisoner/interaction` (`AiPawnController`)
+  - `GET /api/v1/ai/letters`, `POST /api/v1/ai/letters/dismiss` (`ChoiceLetter_GrowthMoment` passion/trait selection), `GET /api/v1/ai/zones/stockpile` (`Zone_Stockpile` + `IStoreSettingsParent` storage buildings), `POST /api/v1/ai/zones/stockpile/filter`, `GET /api/v1/ai/trade/traders`, `GET /api/v1/ai/trade/deal`, `POST /api/v1/ai/trade/execute` (`dry_run`, quote `index`, `net_silver_change`, `TradeSession.Active` conflict guard) (`AiColonyExtrasController`)
+  - `GET /api/v1/ai/designators`, `POST /api/v1/ai/designate`, `GET /api/v1/ai/pawn/options`, `POST /api/v1/ai/pawn/options/invoke`, `GET /api/v1/ai/gizmos`, `POST /api/v1/ai/gizmos/invoke`, `POST /api/v1/ai/mech/work-mode`, `POST /api/v1/ai/pawn/ability`, `POST /api/v1/ai/time/advance` (`AiCommandSurfaceController`)
 - **Dashboard Routes (`/api/v1/dashboard/...` + `ai_action` SSE):**
-  - `GET /api/v1/dashboard/overview`, `GET /api/v1/dashboard/actions`, `POST /api/v1/dashboard/actions/clear` (`DashboardController`)
+  - `GET /api/v1/dashboard/overview` (supports Main Menu when `snapshot == null`), `GET /api/v1/dashboard/actions` (write-focused by default, `?include_reads=true`, capability `tier` + `X-RimApi-Actor`), `POST /api/v1/dashboard/actions/clear` (`DashboardController`)
   - Local web UI: `dashboard/index.html` (see `dashboard/README.md`)
 - **Human-Only Experiment Routes (`/api/v1/experiment/...`):**
   - `GET /api/v1/experiment/status`, `POST /api/v1/experiment/incident`, `POST /api/v1/experiment/speed`, `POST /api/v1/experiment/annotation` (`ExperimentController`)
-- **Smoke Test:** `python tests/ai_dashboard_smoke_test.py` (add `--write-tests` for mutating checks) against a running RimWorld 1.7 colony.
+- **Checks & Docs:**
+  - Validate YAML docs: `python scripts/docs/mkdocs_check_api.py` (controllers live under `docs/_api_macroses/controllers/`)
+  - Smoke Test: `python tests/ai_dashboard_smoke_test.py` (add `--write-tests` for mutating checks) against a running RimWorld 1.7 colony.

@@ -15,17 +15,19 @@ namespace RIMAPI.Controllers
         }
 
         [Get("/api/v1/dashboard/actions")]
-        [EndpointMetadata("Get recent API actions executed by the AI agent or human experiment harness.")]
+        [EndpointMetadata("Get recent API actions executed by the AI agent or human experiment harness (writes/errors by default, pass ?include_reads=true for GETs).")]
         public async Task GetActions(RimApiContext context)
         {
-            int limit = 50;
-            string limitRaw = RequestParser.GetStringParameter(context, "limit", required: false);
-            if (!string.IsNullOrEmpty(limitRaw) && int.TryParse(limitRaw, out int parsed))
+            if (!RequestParser.TryGetOptionalInt(context, "limit", out int? limitOpt, out string limitErr))
             {
-                limit = parsed;
+                await context.SendJsonResponse(ApiResult.ValidationFail(limitErr));
+                return;
             }
 
-            var result = _dashboardService.GetRecentActions(limit);
+            int limit = limitOpt ?? 50;
+            bool includeReads = RequestParser.GetBooleanParameter(context, "include_reads", false);
+
+            var result = _dashboardService.GetRecentActions(limit, includeReads);
             await context.SendJsonResponse(result);
         }
 
@@ -38,31 +40,25 @@ namespace RIMAPI.Controllers
         }
 
         [Get("/api/v1/dashboard/overview")]
-        [EndpointMetadata("Combined colony snapshot, recent action log, and SSE client count for the human monitoring dashboard.")]
+        [EndpointMetadata("Combined colony snapshot (null at main menu), recent action log, and SSE client count for the human monitoring dashboard.")]
         public async Task GetOverview(RimApiContext context)
         {
-            int? mapId = null;
-            string mapIdRaw = RequestParser.GetStringParameter(context, "map_id", required: false);
-            if (!string.IsNullOrEmpty(mapIdRaw))
+            if (!RequestParser.TryGetOptionalInt(context, "map_id", out int? mapId, out string mapErr))
             {
-                if (!int.TryParse(mapIdRaw, out int parsedMapId))
-                {
-                    await context.SendJsonResponse(
-                        ApiResult.ValidationFail("Invalid map_id query parameter: must be an integer")
-                    );
-                    return;
-                }
-                mapId = parsedMapId;
+                await context.SendJsonResponse(ApiResult.ValidationFail(mapErr));
+                return;
             }
 
-            int actionLimit = 20;
-            string limitRaw = RequestParser.GetStringParameter(context, "limit", required: false);
-            if (!string.IsNullOrEmpty(limitRaw) && int.TryParse(limitRaw, out int parsedLimit))
+            if (!RequestParser.TryGetOptionalInt(context, "limit", out int? limitOpt, out string limitErr))
             {
-                actionLimit = parsedLimit;
+                await context.SendJsonResponse(ApiResult.ValidationFail(limitErr));
+                return;
             }
 
-            var result = _dashboardService.GetOverview(mapId, actionLimit);
+            int actionLimit = limitOpt ?? 20;
+            bool includeReads = RequestParser.GetBooleanParameter(context, "include_reads", false);
+
+            var result = _dashboardService.GetOverview(mapId, actionLimit, includeReads);
             await context.SendJsonResponse(result);
         }
     }

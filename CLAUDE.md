@@ -49,8 +49,8 @@ My_test_mod/
 HTTP Client
   → HTTP transport (background thread): HttpListener on 1.5/1.6, Watson on 1.7
   → Request Queue  (producer-consumer, thread-safe)
-  → ApiServer.ProcessTick()  (main Unity thread, ≤10 req/tick)
-  → Router  (attribute-based pattern matching)
+  → ApiServer.ProcessQueuedRequests()  (main Unity thread, ≤10 req/tick)
+  → Router  (attribute-based pattern matching, localhost/CORS/Content-Type checks)
   → Controller  (parse request, call service, return ApiResult)
   → Service  (all RimWorld API access lives here)
   → JSON response
@@ -131,11 +131,14 @@ Use `ApiResult<T>` (with data) or `ApiResult` (no data). `data` is omitted when 
 | Status | Trigger |
 |--------|---------|
 | 200 | `success: true` |
-| 400 | Error message contains "validation" |
-| 401 | Error message contains "unauthorized" |
-| 404 | Error message contains "not found" |
-| 411 | POST without `Content-Length` header |
-| 500 | All other errors |
+| 400 | Validation error, invalid JSON body, or missing/malformed parameter |
+| 401 | Unauthorized |
+| 403 | Forbidden (`Host`/`Origin` restriction or forbidden action) |
+| 404 | Resource or route not found |
+| 409 | State conflict (`StateConflict`, e.g., active TradeSession) |
+| 411 | POST without `Content-Length` header (1.5/1.6 `HttpListener`) |
+| 500 | All other internal errors |
+| 503 | Service unavailable (e.g., game not currently playing) |
 
 ### JSON Naming
 
@@ -180,10 +183,9 @@ Query param names are **not** snake_cased — use the exact name from the `Reque
 ## Adding a New Endpoint
 
 1. **Create a DTO** in the appropriate `Models/` subdirectory.
-2. **Create a service interface + implementation** in `Services/<domain>/`.
-3. **Register the service** in `ApiServer.CreateDefaultServiceProvider()`.
-4. **Create or update a controller** in `Controllers/<domain>/`, inject the service, add a `[Get]`/`[Post]`/etc. method.
-5. **Update docs** in `docs/_endpoints_examples/examples.yml` (required for release).
+2. **Create a service interface + implementation** in `Services/<domain>/` (`AutoRouteRegistry` + `RegisterDiscoveredComponents` auto-wire `IXxxService` → `XxxService` and `*Controller`).
+3. **Create or update a controller** in `Controllers/<domain>/`, inject the service, add a `[Get]`/`[Post]`/etc. method.
+4. **Update docs** in `docs/_api_macroses/controllers/<Controller>.yml` (validated by `python scripts/docs/mkdocs_check_api.py`).
 
 Route attributes are discovered automatically — no manual registration needed.
 
@@ -248,7 +250,8 @@ Before submitting a PR:
 | Pawns | PawnController, PawnInfoController, PawnEditController, PawnJobController, PawnSocialController, PawnSpawnController | IColonistService, IPawnInfoService, IPawnEditService, IPawnJobService, IPawnSocialService, IPawnSpawnService |
 | World | MapController, GlobalMapController, FactionController | IMapService, IGlobalMapService, IFactionService, IBuildingService |
 | Client | UIController, CameraController, ImagesController, OverlayController, LearningController | IUIService, ICameraService, IImageService, IOverlayService, ILearningService |
-| AI | LordController | — |
+| AI | LordController, AiController, AiPawnController, AiColonyExtrasController, AiCommandSurfaceController | IAiSnapshotService, IAiPawnService, IAiColonyExtrasService, IAiCommandSurfaceService |
+| Dashboard | DashboardController, ExperimentController | IDashboardService, IExperimentService |
 
 ## Key Files
 

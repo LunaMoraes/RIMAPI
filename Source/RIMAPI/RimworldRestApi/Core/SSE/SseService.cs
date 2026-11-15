@@ -25,6 +25,13 @@ namespace RIMAPI.Core
         public long TotalEventsSent { get; private set; }
         private DateTime _lastHeartbeatTime = DateTime.UtcNow;
 
+        private static readonly JsonSerializerSettings _jsonSettings = new JsonSerializerSettings
+        {
+            ContractResolver = new SnakeCaseContractResolver(),
+            NullValueHandling = NullValueHandling.Ignore,
+            Formatting = Formatting.None,
+        };
+
         public SseService(IGameStateService gameStateService)
         {
             _gameStateService = gameStateService;
@@ -44,6 +51,7 @@ namespace RIMAPI.Core
                 _registeredEventTypes.Add("gameUpdate");
                 _registeredEventTypes.Add("heartbeat");
                 _registeredEventTypes.Add("error");
+                _registeredEventTypes.Add("ai_action");
             }
         }
 
@@ -200,11 +208,7 @@ namespace RIMAPI.Core
 
             try
             {
-                string json = data is string s ? s : JsonConvert.SerializeObject(data, new JsonSerializerSettings
-                {
-                    NullValueHandling = NullValueHandling.Ignore,
-                    Formatting = Formatting.None,
-                });
+                string json = data is string s ? s : JsonConvert.SerializeObject(data, _jsonSettings);
 
                 string message = $"event: {eventType}\ndata: {json}\n\n";
                 var buffer = System.Text.Encoding.UTF8.GetBytes(message);

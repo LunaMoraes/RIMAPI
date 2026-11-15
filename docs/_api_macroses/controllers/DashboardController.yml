@@ -1,0 +1,66 @@
+title: '### :material-view-dashboard: Dashboard Controller'
+desc: Human-facing local dashboard overview and audited AI action ring-buffer endpoints.
+/api/v1/dashboard/overview:
+  desc: Returns combined colony snapshot (null at Main Menu), recent write-focused actions (`?include_reads=true` for GETs too), SSE client count, and playing state.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/dashboard/overview?include_reads=false'
+    ```
+  request: |-
+    **Request:**
+    No request body. Optional query params: `map_id`, `include_reads`, `limit`.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"program_state": "Playing", "is_playing": true, "snapshot": {}, "recent_actions": [], "sse_client_count": 0},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/dashboard/actions:
+  desc: Returns the recent HTTP action & annotation ring-buffer log with capability tiers (`observe`, `act`, `cheat`, `experiment`, `admin`) and actors.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/dashboard/actions?limit=50&include_reads=false'
+    ```
+  request: |-
+    **Request:**
+    No request body. Optional query params: `limit`, `include_reads`.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": [{"id": 1, "method": "POST", "path": "/api/v1/ai/pawn/draft", "status_code": 200, "tier": "act", "actor": "ai-agent"}],
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/dashboard/actions/clear:
+  desc: Clears recorded dashboard action logs.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST --url 'http://localhost:8765/api/v1/dashboard/actions/clear'
+    ```
+  request: |-
+    **Request:**
+    No request body required.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST

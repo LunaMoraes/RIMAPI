@@ -1,0 +1,112 @@
+title: '### :material-flask: Experiment Controller'
+desc: Human-only testing and experiment endpoints (logged under tier `experiment`).
+/api/v1/experiment/status:
+  desc: Returns high-level experiment harness status (map ID, tick, storyteller, difficulty, colony wealth, colonist/hostile counts, speed).
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/experiment/status?map_id=0'
+    ```
+  request: |-
+    **Request:**
+    No request body. Optional query param: `map_id`.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"map_id": 0, "tick": 12000, "colony_wealth": 4500.0, "colonist_count": 3, "hostile_count": 0, "game_speed": "Paused", "is_paused": true},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/experiment/incident:
+  desc: Manually fires a RimWorld `IncidentDef` on a map for experiment stress testing.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/experiment/incident' \
+    --header 'Content-Type: application/json' \
+    --data '{"map_id":0,"incident_def":"SolarFlare","points":300}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "map_id": 0,
+        "incident_def": "SolarFlare",
+        "points": 300
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"incident_def": "SolarFlare", "map_id": 0, "points_used": 300.0, "fired": true},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/experiment/speed:
+  desc: Sets simulation `TimeSpeed` (`Paused`, `Normal`, `Fast`, `Superfast`, `Ultrafast` or `"0"`-`"4"`).
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/experiment/speed' \
+    --header 'Content-Type: application/json' \
+    --data '{"speed":"Normal"}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "speed": "Normal"
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"game_speed": "Normal", "is_paused": false},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/experiment/annotation:
+  desc: Records a human annotation in the dashboard action log and emits an `ai_action` SSE event.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/experiment/annotation' \
+    --header 'Content-Type: application/json' \
+    --data '{"note":"Baseline trial started","show_in_game_banner":false}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "note": "Baseline trial started",
+        "show_in_game_banner": false
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST

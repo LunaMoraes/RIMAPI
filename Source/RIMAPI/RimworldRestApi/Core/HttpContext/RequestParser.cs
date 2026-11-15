@@ -73,6 +73,34 @@ namespace RIMAPI.Http
         }
 
         /// <summary>
+        /// Attempts to read an optional integer query parameter. Returns false with a validation error only if present and non-integer.
+        /// </summary>
+        public static bool TryGetOptionalInt(
+            RimApiContext context,
+            string parameterName,
+            out int? value,
+            out string error
+        )
+        {
+            ValidateContextAndParameterName(context, parameterName);
+
+            value = null;
+            error = null;
+            string raw = GetQueryStringValue(context, parameterName, false);
+            if (string.IsNullOrEmpty(raw))
+                return true;
+
+            if (!int.TryParse(raw, out int parsed))
+            {
+                error = $"Invalid {parameterName} query parameter: must be an integer";
+                return false;
+            }
+
+            value = parsed;
+            return true;
+        }
+
+        /// <summary>
         /// Gets a boolean parameter from the request query string.
         /// </summary>
         /// <param name="context">The HTTP listener context.</param>

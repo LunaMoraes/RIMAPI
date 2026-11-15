@@ -1,30 +1,31 @@
 title: '### :material-gesture-tap-button: Order Controller'
-desc: The **Order Controller** is for issuing commands to pawns.
+desc: The **Order Controller** is for issuing area designations and orders.
 /api/v1/order/designate/area:
   desc: |-
-    Send command
+    Designate cells or things in a rectangular region (`point_a` to `point_b`).
+    By default respects fog of war (fogged cells are skipped and counted in `skipped_fogged_count`) unless `omniscient: true` is passed.
 
-    Currently supported commands:
-
-    - remove-all: removes all commands
-    - mine
-    - deconstruct
-    - harvest
-    - hunt
+    Supported designation types:
+    - `mine`, `deconstruct`, `uninstall`, `harvest`, `chop`, `cut`, `cut-plant`
+    - `haul`, `hunt`, `tame`, `slaughter`, `smooth`
+    - `claim`, `forbid`, `unforbid`, `cancel`, `remove-all`
   curl: |-
     **Example:**
     ```bash
     curl --request POST \
-    --url 'http://localhost:8765/api/v1/order/designate/area'
+    --url 'http://localhost:8765/api/v1/order/designate/area' \
+    --header 'Content-Type: application/json' \
+    --data '{"map_id":0,"type":"mine","point_a":{"x":10,"y":0,"z":10},"point_b":{"x":15,"y":0,"z":15}}'
     ```
   request: |-
     **Request:**
     ```json
     {
         "map_id": 0,
-        "type": "Mine",
-        "point_a": {"x": 0, "y": 0, "z": 0},
-        "point_b": {"x": 250, "y": 0, "z": 250}
+        "type": "mine",
+        "point_a": {"x": 10, "y": 0, "z": 10},
+        "point_b": {"x": 15, "y": 0, "z": 15},
+        "omniscient": false
     }
     ```
   response: |-
@@ -32,6 +33,15 @@ desc: The **Order Controller** is for issuing commands to pawns.
     ```json
     {
         "success": true,
+        "data": {
+            "map_id": 0,
+            "type": "mine",
+            "designated_count": 4,
+            "already_designated_count": 0,
+            "affected_count": 4,
+            "skipped_fogged_count": 0,
+            "cells_scanned": 36
+        },
         "errors": [],
         "warnings": [],
         "timestamp": "2025-12-31T11:04:27.9729153Z"

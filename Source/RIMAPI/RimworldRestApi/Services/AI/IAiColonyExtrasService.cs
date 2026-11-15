@@ -11,6 +11,7 @@ namespace RIMAPI.Services
         ApiResult<List<AiStockpileSummaryDto>> GetStockpiles(int? mapId);
         ApiResult<AiStockpileSummaryDto> UpdateStockpileFilter(AiStockpileFilterRequestDto request);
         ApiResult<List<AiTraderDto>> GetTraders(int? mapId);
+        ApiResult<AiTradeDealQuoteDto> GetTradeDeal(int? mapId, int traderId, int? negotiatorPawnId);
         ApiResult<AiTradeExecuteResultDto> ExecuteTrade(AiTradeExecuteRequestDto request);
     }
 }

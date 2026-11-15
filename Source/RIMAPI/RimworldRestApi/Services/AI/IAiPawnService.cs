@@ -9,6 +9,7 @@ namespace RIMAPI.Services
         ApiResult<AiDraftResultDto> SetDraft(AiDraftRequestDto request);
         ApiResult<AiPawnCommandResultDto> CommandPawn(AiPawnCommandRequestDto request);
         ApiResult<AiPawnPolicyResultDto> UpdatePolicy(AiPawnPolicyRequestDto request);
+        ApiResult<AiPoliciesListDto> GetPolicies(int? mapId);
         ApiResult<List<AiAreaDto>> GetAreas(int? mapId);
         ApiResult<AiAreaDto> CreateArea(AiAreaCreateRequestDto request);
         ApiResult<AiAreaDto> UpdateAreaCells(AiAreaCellsRequestDto request);
