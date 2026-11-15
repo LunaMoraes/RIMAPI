@@ -204,6 +204,25 @@ namespace RIMAPI.Models
         public PositionDto Position { get; set; }
         public int HealthPct { get; set; }
         public bool IsDowned { get; set; }
+
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public bool? HospitalityEnabled { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public bool? Entertain { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public bool? MakeFriends { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string GuestArea { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string ShoppingArea { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public bool? HasBed { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public int? BedId { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public float? FriendPercentage { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public int? FriendsRequired { get; set; }
     }
 
     public class AiAnimalSummaryDto
@@ -229,5 +248,10 @@ namespace RIMAPI.Models
         public int? OverseerId { get; set; }
         public int? ControlGroupIndex { get; set; }
         public string WorkMode { get; set; }
+
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public bool? IsModRobot { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public int? RechargeStationId { get; set; }
     }
 }

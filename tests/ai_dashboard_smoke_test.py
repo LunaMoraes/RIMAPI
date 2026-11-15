@@ -191,10 +191,19 @@ def main():
         "/api/v1/ai/zones/stockpile",
         "/api/v1/ai/trade/traders",
         "/api/v1/ai/designators",
+        "/api/v1/ai/hospitality/beds",
     ):
         code, body = request_json(args.base_url, "GET", path)
         snake_err = assert_all_snake_case(body.get("data"), path)
         results.append(check(f"GET {path}", code == 200 and body.get("success") is True and snake_err is None, f"http={code}, snake_err={snake_err}"))
+
+    colonists = snap_data.get("colonists") or []
+    if colonists:
+        first_pid = colonists[0]["id"]
+        abilities_path = f"/api/v1/ai/pawn/abilities?pawn_id={first_pid}"
+        code, body = request_json(args.base_url, "GET", abilities_path)
+        snake_err = assert_all_snake_case(body.get("data"), abilities_path)
+        results.append(check(f"GET {abilities_path}", code == 200 and body.get("success") is True and snake_err is None, f"http={code}, count={len(body.get('data') or [])}, snake_err={snake_err}"))
 
     # 4. Dashboard Overview & Actions
     code, ov = request_json(args.base_url, "GET", "/api/v1/dashboard/overview?limit=10")
@@ -239,6 +248,9 @@ def main():
 
     code, err_body = request_json(args.base_url, "GET", "/api/v1/ai/gizmos")
     results.append(check("Validation 400 on missing gizmo target", code == 400 and err_body.get("success") is False, f"http={code}"))
+
+    code, err_body = request_json(args.base_url, "GET", "/api/v1/ai/pawn/abilities")
+    results.append(check("Validation 400 on missing pawn_id for abilities", code == 400 and err_body.get("success") is False, f"http={code}"))
 
     code, err_body, _ = request_raw(
         args.base_url,

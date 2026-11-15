@@ -117,6 +117,17 @@ namespace RIMAPI.Models
         public List<int> MechIds { get; set; } = new List<int>();
     }
 
+    public class AiPawnAbilityDto
+    {
+        public string DefName { get; set; }
+        public string Label { get; set; }
+        public string Source { get; set; }
+        public bool CanCast { get; set; }
+        public string DisabledReason { get; set; }
+        public float Range { get; set; }
+        public float Radius { get; set; }
+    }
+
     public class AiPawnAbilityRequestDto
     {
         public int PawnId { get; set; }
@@ -132,7 +143,57 @@ namespace RIMAPI.Models
         public int PawnId { get; set; }
         public string PawnName { get; set; }
         public string AbilityDefName { get; set; }
+        public string Source { get; set; }
         public bool Queued { get; set; }
+    }
+
+    public class AiHospitalityGuestRequestDto
+    {
+        public int PawnId { get; set; }
+        public bool? Entertain { get; set; }
+        public bool? MakeFriends { get; set; }
+        public string GuestArea { get; set; }
+        public int? GuestAreaId { get; set; }
+        public string ShoppingArea { get; set; }
+        public int? ShoppingAreaId { get; set; }
+        public bool? SendHome { get; set; }
+    }
+
+    public class AiHospitalityGuestResultDto
+    {
+        public int PawnId { get; set; }
+        public string PawnName { get; set; }
+        public bool Entertain { get; set; }
+        public bool MakeFriends { get; set; }
+        public string GuestArea { get; set; }
+        public string ShoppingArea { get; set; }
+        public bool SentHome { get; set; }
+    }
+
+    public class AiHospitalityBedDto
+    {
+        public int BedId { get; set; }
+        public string DefName { get; set; }
+        public string Label { get; set; }
+        public PositionDto Position { get; set; }
+        public int RentalFee { get; set; }
+        public List<string> Owners { get; set; } = new List<string>();
+    }
+
+    public class AiHospitalityBedRequestDto
+    {
+        public int? MapId { get; set; }
+        public int BedId { get; set; }
+        public bool? AsGuestBed { get; set; }
+        public int? RentalFee { get; set; }
+    }
+
+    public class AiHospitalityBedResultDto
+    {
+        public int BedId { get; set; }
+        public string DefName { get; set; }
+        public bool IsGuestBed { get; set; }
+        public int RentalFee { get; set; }
     }
 
     public class AiTimeAdvanceRequestDto

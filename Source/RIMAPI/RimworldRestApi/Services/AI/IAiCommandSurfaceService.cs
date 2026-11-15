@@ -13,7 +13,11 @@ namespace RIMAPI.Services
         ApiResult<List<AiGizmoDto>> GetGizmos(int? mapId, int? pawnId, int? thingId, int? zoneId, bool omniscient);
         ApiResult<AiGizmoInvokeResultDto> InvokeGizmo(AiGizmoInvokeRequestDto request);
         ApiResult<AiMechWorkModeResultDto> SetMechWorkMode(AiMechWorkModeRequestDto request);
+        ApiResult<List<AiPawnAbilityDto>> GetPawnAbilities(int pawnId);
         ApiResult<AiPawnAbilityResultDto> CastAbility(AiPawnAbilityRequestDto request);
         ApiResult<AiTimeAdvanceResultDto> AdvanceTime(AiTimeAdvanceRequestDto request);
+        ApiResult<AiHospitalityGuestResultDto> UpdateHospitalityGuest(AiHospitalityGuestRequestDto request);
+        ApiResult<List<AiHospitalityBedDto>> GetHospitalityBeds(int? mapId);
+        ApiResult<AiHospitalityBedResultDto> UpdateHospitalityBed(AiHospitalityBedRequestDto request);
     }
 }

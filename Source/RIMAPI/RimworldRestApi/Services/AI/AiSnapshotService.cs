@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using RIMAPI.Core;
 using RIMAPI.Helpers;
 using RIMAPI.Models;
@@ -486,6 +487,36 @@ namespace RIMAPI.Services
 
         private static List<AiGuestSummaryDto> BuildGuests(Map map, bool omniscient)
         {
+            Type guestUtilityType = GenTypes.GetTypeInAnyAssembly("Hospitality.Utilities.GuestUtility", null);
+            int? friendsRequired = null;
+            MethodInfo friendPctMethod = null;
+            if (guestUtilityType != null)
+            {
+                try
+                {
+                    MethodInfo friendsReqMethod = guestUtilityType.GetMethod(
+                        "FriendsRequired",
+                        BindingFlags.Public | BindingFlags.Static,
+                        null,
+                        new[] { typeof(Map) },
+                        null);
+                    if (friendsReqMethod != null && friendsReqMethod.Invoke(null, new object[] { map }) is int req)
+                    {
+                        friendsRequired = req;
+                    }
+                    friendPctMethod = guestUtilityType.GetMethod(
+                        "GetFriendPercentage",
+                        BindingFlags.Public | BindingFlags.Static,
+                        null,
+                        new[] { typeof(Pawn) },
+                        null);
+                }
+                catch
+                {
+                    // Ignore Hospitality version mismatches cleanly
+                }
+            }
+
             var list = new List<AiGuestSummaryDto>();
             foreach (var p in map.mapPawns.AllPawnsSpawned)
             {
@@ -494,7 +525,7 @@ namespace RIMAPI.Services
                 if (!omniscient && p.Position.Fogged(map))
                     continue;
 
-                list.Add(new AiGuestSummaryDto
+                var dto = new AiGuestSummaryDto
                 {
                     Id = p.thingIDNumber,
                     Name = p.LabelShort,
@@ -505,7 +536,34 @@ namespace RIMAPI.Services
                     Position = new PositionDto { X = p.Position.x, Y = 0, Z = p.Position.z },
                     HealthPct = Mathf.RoundToInt((p.health?.summaryHealth?.SummaryHealthPercent ?? 1f) * 100f),
                     IsDowned = p.Downed
-                });
+                };
+
+                ThingComp compGuest = FindCompByFullName(p, "Hospitality.CompGuest");
+                if (compGuest != null)
+                {
+                    try
+                    {
+                        bool hasArrived = TryGetFieldValue(compGuest, "arrived", out bool arrivedVal);
+                        dto.HospitalityEnabled = hasArrived ? arrivedVal : true;
+                        dto.Entertain = TryGetFieldValue(compGuest, "entertain", out bool ent) ? ent : (bool?)null;
+                        dto.MakeFriends = TryGetFieldValue(compGuest, "makeFriends", out bool mf) ? mf : (bool?)null;
+                        dto.GuestArea = TryGetPropertyValue(compGuest, "GuestArea", out Area ga) ? ga?.Label : null;
+                        dto.ShoppingArea = TryGetPropertyValue(compGuest, "ShoppingArea", out Area sa) ? sa?.Label : null;
+                        dto.HasBed = TryGetPropertyValue(compGuest, "HasBed", out bool hb) ? hb : (bool?)null;
+                        dto.BedId = TryGetFieldValue(compGuest, "bed", out Thing bed) ? bed?.thingIDNumber : (int?)null;
+                        dto.FriendsRequired = friendsRequired;
+                        if (friendPctMethod != null && friendPctMethod.Invoke(null, new object[] { p }) is float fp)
+                        {
+                            dto.FriendPercentage = (float)Math.Round(fp, 1);
+                        }
+                    }
+                    catch
+                    {
+                        // Degrade gracefully if CompGuest internals differ
+                    }
+                }
+
+                list.Add(dto);
             }
             return list;
         }
@@ -551,10 +609,12 @@ namespace RIMAPI.Services
             }
 
             var list = new List<AiMechSummaryDto>();
+            var seenIds = new HashSet<int>();
             foreach (var p in map.mapPawns.SpawnedColonyMechs)
             {
                 if (p.Dead) continue;
                 mechGroupMap.TryGetValue(p, out var info);
+                seenIds.Add(p.thingIDNumber);
 
                 list.Add(new AiMechSummaryDto
                 {
@@ -569,7 +629,211 @@ namespace RIMAPI.Services
                     WorkMode = info.group?.WorkMode?.defName
                 });
             }
+
+            // Soft bridge for Misc. Robots (AIRobot.X2_AIRobot & AIRobot.X2_Building_AIRobotRechargeStation)
+            var stationByRobotId = new Dictionary<int, Thing>();
+            var candidateRobots = new List<Pawn>();
+
+            if (map.listerBuildings?.allBuildingsColonist != null)
+            {
+                foreach (var b in map.listerBuildings.allBuildingsColonist)
+                {
+                    if (b == null || b.GetType().FullName != "AIRobot.X2_Building_AIRobotRechargeStation") continue;
+                    if (TryGetPropertyValue(b, "GetRobot", out Pawn linkedBot) && linkedBot != null)
+                    {
+                        stationByRobotId[linkedBot.thingIDNumber] = b;
+                        candidateRobots.Add(linkedBot);
+                    }
+                }
+            }
+
+            foreach (var p in map.mapPawns.AllPawnsSpawned)
+            {
+                if (p == null || p.Dead || p.Faction != Faction.OfPlayer) continue;
+                if (p.GetType().FullName == "AIRobot.X2_AIRobot")
+                {
+                    candidateRobots.Add(p);
+                }
+            }
+
+            foreach (var bot in candidateRobots)
+            {
+                if (bot == null || bot.Dead || !seenIds.Add(bot.thingIDNumber)) continue;
+                if (bot.Faction != null && bot.Faction != Faction.OfPlayer) continue;
+
+                stationByRobotId.TryGetValue(bot.thingIDNumber, out Thing station);
+                if (station == null)
+                {
+                    TryGetFieldValue(bot, "rechargeStation", out station);
+                }
+
+                IntVec3 pos = bot.Spawned
+                    ? bot.Position
+                    : (station != null && station.Spawned ? station.Position : IntVec3.Invalid);
+
+                int? energyPct = null;
+                if (bot.needs?.rest != null)
+                {
+                    energyPct = Mathf.RoundToInt(bot.needs.rest.CurLevelPercentage * 100f);
+                }
+                else if (bot.needs?.AllNeeds != null && bot.needs.AllNeeds.Count > 0)
+                {
+                    energyPct = Mathf.RoundToInt(bot.needs.AllNeeds[0].CurLevelPercentage * 100f);
+                }
+
+                string workMode = !bot.Spawned
+                    ? "Recharging"
+                    : (TryInvokeMethod(bot, "HasActiveJobs", out bool hasJobs) && hasJobs ? "Working" : "Idle");
+
+                list.Add(new AiMechSummaryDto
+                {
+                    Id = bot.thingIDNumber,
+                    Name = bot.LabelShort,
+                    DefName = bot.def?.defName,
+                    Position = pos.IsValid ? new PositionDto { X = pos.x, Y = pos.y, Z = pos.z } : null,
+                    HealthPct = Mathf.RoundToInt((bot.health?.summaryHealth?.SummaryHealthPercent ?? 1f) * 100f),
+                    EnergyPct = energyPct,
+                    WorkMode = workMode,
+                    IsModRobot = true,
+                    RechargeStationId = station?.thingIDNumber
+                });
+            }
+
             return list;
+        }
+
+        internal static ThingComp FindCompByFullName(ThingWithComps thing, string fullName)
+        {
+            if (thing?.AllComps == null || string.IsNullOrEmpty(fullName)) return null;
+            foreach (var comp in thing.AllComps)
+            {
+                if (comp != null && comp.GetType().FullName == fullName)
+                {
+                    return comp;
+                }
+            }
+            return null;
+        }
+
+        internal static bool TryGetFieldValue<T>(object target, string fieldName, out T value)
+        {
+            value = default;
+            FieldInfo fi = FindField(target?.GetType(), fieldName);
+            if (fi == null) return false;
+            object raw = fi.GetValue(target);
+            if (raw is T typed)
+            {
+                value = typed;
+                return true;
+            }
+            return raw == null && !typeof(T).IsValueType;
+        }
+
+        internal static bool SetFieldValue(object target, string fieldName, object value)
+        {
+            FieldInfo fi = FindField(target?.GetType(), fieldName);
+            if (fi == null) return false;
+            fi.SetValue(target, value);
+            return true;
+        }
+
+        internal static bool TryGetPropertyValue<T>(object target, string propName, out T value)
+        {
+            value = default;
+            PropertyInfo pi = FindProperty(target?.GetType(), propName);
+            if (pi == null || !pi.CanRead) return false;
+            object raw = pi.GetValue(target, null);
+            if (raw is T typed)
+            {
+                value = typed;
+                return true;
+            }
+            return raw == null && !typeof(T).IsValueType;
+        }
+
+        internal static bool SetPropertyValue(object target, string propName, object value)
+        {
+            PropertyInfo pi = FindProperty(target?.GetType(), propName);
+            if (pi == null || !pi.CanWrite) return false;
+            pi.SetValue(target, value, null);
+            return true;
+        }
+
+        internal static bool TryInvokeMethod<T>(object target, string methodName, out T value, params object[] args)
+        {
+            value = default;
+            if (target == null) return false;
+            MethodInfo mi = FindInstanceMethod(target.GetType(), methodName, args);
+            if (mi == null) return false;
+            object raw = mi.Invoke(target, args);
+            if (raw is T typed)
+            {
+                value = typed;
+                return true;
+            }
+            return raw == null && !typeof(T).IsValueType;
+        }
+
+        internal static bool InvokeVoidMethod(object target, string methodName, params object[] args)
+        {
+            if (target == null) return false;
+            MethodInfo mi = FindInstanceMethod(target.GetType(), methodName, args);
+            if (mi == null) return false;
+            mi.Invoke(target, args);
+            return true;
+        }
+
+        private static FieldInfo FindField(Type type, string fieldName)
+        {
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+            for (Type t = type; t != null; t = t.BaseType)
+            {
+                FieldInfo fi = t.GetField(fieldName, flags);
+                if (fi != null) return fi;
+            }
+            return null;
+        }
+
+        private static PropertyInfo FindProperty(Type type, string propName)
+        {
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+            for (Type t = type; t != null; t = t.BaseType)
+            {
+                PropertyInfo pi = t.GetProperty(propName, flags);
+                if (pi != null) return pi;
+            }
+            return null;
+        }
+
+        private static MethodInfo FindInstanceMethod(Type type, string methodName, object[] args)
+        {
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            int argCount = args?.Length ?? 0;
+            foreach (MethodInfo m in type.GetMethods(flags))
+            {
+                if (!string.Equals(m.Name, methodName, StringComparison.Ordinal)) continue;
+                ParameterInfo[] ps = m.GetParameters();
+                if (ps.Length != argCount) continue;
+                bool match = true;
+                for (int i = 0; i < argCount; i++)
+                {
+                    if (args[i] == null)
+                    {
+                        if (ps[i].ParameterType.IsValueType && Nullable.GetUnderlyingType(ps[i].ParameterType) == null)
+                        {
+                            match = false;
+                            break;
+                        }
+                    }
+                    else if (!ps[i].ParameterType.IsInstanceOfType(args[i]))
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return m;
+            }
+            return null;
         }
     }
 }

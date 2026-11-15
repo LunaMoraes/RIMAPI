@@ -171,7 +171,7 @@ desc: Generic RimWorld interaction surfaces (live Designators, FloatMenu options
   method: POST
 
 /api/v1/ai/mech/work-mode:
-  desc: Set the `MechWorkModeDef` (`Work`, `Recharge`, `Escort`, `DormantSelfCharge`) on a Biotech mechanitor control group.
+  desc: Set the `MechWorkModeDef` (`Work`, `Recharge`, `Escort`, `DormantSelfCharge`) on a Biotech mechanitor control group, or control a *Misc. Robots* (`AIRobot`) bot/station (`Work`, `Recharge`, `Stop`).
   curl: |-
     **Example:**
     ```bash
@@ -202,8 +202,30 @@ desc: Generic RimWorld interaction surfaces (live Designators, FloatMenu options
     ```
   method: POST
 
+/api/v1/ai/pawn/abilities:
+  desc: List all vanilla/Royalty (`Verse.Ability` / `RimWorld.Ability`) and Vanilla Expanded Framework (`VEF.Abilities` / *Vanilla Psycasts Expanded*) abilities learned by a pawn.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/ai/pawn/abilities?pawn_id=123'
+    ```
+  request: |-
+    **Request:**
+    No request body. Query param: `pawn_id` (required).
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": [{"def_name": "WordOfTrust", "label": "Word of trust", "source": "vanilla", "can_cast": true, "range": 12.9, "radius": 0.0}],
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
 /api/v1/ai/pawn/ability:
-  desc: Queue casting a pawn `Ability` or Royalty psycast onto a target pawn or map cell.
+  desc: Queue casting a vanilla/Royalty `Ability` or `VEF.Abilities` (VPE psycast) ability onto a target pawn or map cell.
   curl: |-
     **Example:**
     ```bash
@@ -229,7 +251,95 @@ desc: Generic RimWorld interaction surfaces (live Designators, FloatMenu options
     ```json
     {
         "success": true,
-        "data": {"pawn_id": 123, "pawn_name": "Humps", "ability_def_name": "WordOfTrust", "queued": true},
+        "data": {"pawn_id": 123, "pawn_name": "Humps", "ability_def_name": "WordOfTrust", "source": "vanilla", "queued": true},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/hospitality/guest:
+  desc: Update *Hospitality* (`Hospitality.CompGuest`) guest settings (`entertain`, `make_friends`, `guest_area`, `shopping_area`, `send_home`).
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/hospitality/guest' \
+    --header 'Content-Type: application/json' \
+    --data '{"pawn_id":456,"entertain":true,"make_friends":true}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "pawn_id": 456,
+        "entertain": true,
+        "make_friends": true,
+        "guest_area": "Guests",
+        "shopping_area": null,
+        "send_home": false
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"pawn_id": 456, "pawn_name": "Visitor", "entertain": true, "make_friends": true, "guest_area": "Guests", "shopping_area": null, "sent_home": false},
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: POST
+
+/api/v1/ai/hospitality/beds:
+  desc: List *Hospitality* `Building_GuestBed` instances on a map with rental fees and current guest owners.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request GET --url 'http://localhost:8765/api/v1/ai/hospitality/beds'
+    ```
+  request: |-
+    **Request:**
+    No request body. Optional query param: `map_id`.
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": [{"bed_id": 789, "def_name": "BedGuest", "label": "Wooden guest bed", "position": {"x": 10, "y": 0, "z": 12}, "rental_fee": 10, "owners": []}],
+        "errors": [],
+        "warnings": []
+    }
+    ```
+  method: GET
+
+/api/v1/ai/hospitality/bed:
+  desc: Convert a regular bed to/from a *Hospitality* `Building_GuestBed` or update its `rental_fee`.
+  curl: |-
+    **Example:**
+    ```bash
+    curl --request POST \
+    --url 'http://localhost:8765/api/v1/ai/hospitality/bed' \
+    --header 'Content-Type: application/json' \
+    --data '{"bed_id":789,"as_guest_bed":true,"rental_fee":15}'
+    ```
+  request: |-
+    **Request:**
+    ```json
+    {
+        "map_id": null,
+        "bed_id": 789,
+        "as_guest_bed": true,
+        "rental_fee": 15
+    }
+    ```
+  response: |-
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "data": {"bed_id": 790, "def_name": "BedGuest", "is_guest_bed": true, "rental_fee": 15},
         "errors": [],
         "warnings": []
     }
