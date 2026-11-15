@@ -23,7 +23,7 @@ import urllib.request
 def request_raw(base_url: str, method: str, path: str, raw_body=None, extra_headers=None):
     url = f"{base_url.rstrip('/')}{path}"
     data = None
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", "X-RimApi-Actor": "smoke-test-agent"}
     if raw_body is not None:
         data = raw_body if isinstance(raw_body, bytes) else raw_body.encode("utf-8")
         headers["Content-Type"] = "application/json"

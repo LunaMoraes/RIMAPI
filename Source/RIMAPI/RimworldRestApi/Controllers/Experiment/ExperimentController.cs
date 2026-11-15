@@ -52,7 +52,8 @@ namespace RIMAPI.Controllers
         public async Task Annotate(RimApiContext context)
         {
             var body = await context.Request.ReadBodyAsync<ExperimentAnnotationRequestDto>();
-            var result = _experimentService.Annotate(body);
+            string actor = context.Request.Headers?["X-RimApi-Actor"];
+            var result = _experimentService.Annotate(body, actor);
             await context.SendJsonResponse(result);
         }
     }

@@ -90,14 +90,14 @@ namespace RIMAPI.Services
             });
         }
 
-        public ApiResult Annotate(ExperimentAnnotationRequestDto request)
+        public ApiResult Annotate(ExperimentAnnotationRequestDto request, string actor = null)
         {
             if (request == null || string.IsNullOrWhiteSpace(request.Note))
             {
                 return ApiResult.ValidationFail("note is required");
             }
 
-            _dashboardService.RecordAnnotation(request.Note.Trim());
+            _dashboardService.RecordAnnotation(request.Note.Trim(), actor);
 
             if (request.ShowInGameBanner && Current.ProgramState == ProgramState.Playing)
             {

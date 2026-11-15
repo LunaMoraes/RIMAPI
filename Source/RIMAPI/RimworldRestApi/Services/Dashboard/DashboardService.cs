@@ -33,7 +33,8 @@ namespace RIMAPI.Services
         {
             if (string.IsNullOrEmpty(path)) return;
             if (path.StartsWith("/api/v1/dashboard", StringComparison.OrdinalIgnoreCase) ||
-                path.Equals("/api/v1/events", StringComparison.OrdinalIgnoreCase))
+                path.Equals("/api/v1/events", StringComparison.OrdinalIgnoreCase) ||
+                (path.Equals("/api/v1/experiment/annotation", StringComparison.OrdinalIgnoreCase) && statusCode < 400))
             {
                 return;
             }

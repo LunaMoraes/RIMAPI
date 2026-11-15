@@ -7,7 +7,7 @@ namespace RIMAPI.Services
     {
         ApiResult<ExperimentIncidentResultDto> TriggerIncident(ExperimentIncidentRequestDto request);
         ApiResult<ExperimentSpeedResultDto> SetSpeed(ExperimentSpeedRequestDto request);
-        ApiResult Annotate(ExperimentAnnotationRequestDto request);
+        ApiResult Annotate(ExperimentAnnotationRequestDto request, string actor = null);
         ApiResult<ExperimentStatusDto> GetStatus(int? mapId);
     }
 }

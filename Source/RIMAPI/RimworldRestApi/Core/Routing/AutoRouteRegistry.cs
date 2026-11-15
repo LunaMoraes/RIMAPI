@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Reflection;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 using RIMAPI.Http;
 
 namespace RIMAPI.Core
@@ -196,6 +197,12 @@ namespace RIMAPI.Core
                 {
                     // Unwrap the actual exception from reflection
                     var innerEx = ex.InnerException ?? ex;
+                    if (innerEx is ParameterNotFoundException
+                        || innerEx is ParameterFormatException
+                        || innerEx is JsonException)
+                    {
+                        throw innerEx;
+                    }
                     LogApi.Error(
                         $"Error in auto-routed endpoint {controllerType.Name}.{method.Name}: {innerEx}"
                     );
@@ -203,6 +210,14 @@ namespace RIMAPI.Core
                         HttpStatusCode.InternalServerError,
                         $"Internal server error: {innerEx.Message}"
                     );
+                }
+                catch (Exception ex) when (
+                    ex is ParameterNotFoundException
+                    || ex is ParameterFormatException
+                    || ex is JsonException
+                )
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {

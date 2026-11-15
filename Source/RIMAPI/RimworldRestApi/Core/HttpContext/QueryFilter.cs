@@ -30,6 +30,9 @@ namespace RIMAPI.Core
                 if (string.IsNullOrEmpty(key) || IsReservedKey(key))
                     continue;
 
+                if (!key.Contains(".") && GetPropertyByJsonName(typeof(T), key) == null)
+                    continue;
+
                 var value = query[key];
                 filteredItems = filteredItems.Where(item => Matches(item, key, value)).ToList();
             }
@@ -182,8 +185,14 @@ namespace RIMAPI.Core
 
         private static PropertyInfo GetPropertyByJsonName(object item, string jsonName)
         {
-            var properties = item.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
-            
+            return item == null ? null : GetPropertyByJsonName(item.GetType(), jsonName);
+        }
+
+        private static PropertyInfo GetPropertyByJsonName(Type type, string jsonName)
+        {
+            if (type == null || string.IsNullOrEmpty(jsonName)) return null;
+            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
             // Try exact snake_case match first
             foreach (var prop in properties)
             {
@@ -271,10 +280,17 @@ namespace RIMAPI.Core
             return iface?.GetGenericArguments()[0];
         }
 
+        private static readonly HashSet<string> _reservedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "format", "map_id", "token", "api_key",
+            "limit", "offset", "include", "include_reads", "include_hidden",
+            "omniscient", "since_tick", "pawn_id", "thing_id", "zone_id",
+            "trader_id", "negotiator_pawn_id", "tile_id", "radius", "x", "z"
+        };
+
         private static bool IsReservedKey(string key)
         {
-            var reserved = new[] { "format", "map_id", "token", "api_key" };
-            return reserved.Contains(key.ToLower());
+            return !string.IsNullOrEmpty(key) && _reservedKeys.Contains(key);
         }
     }
 }
